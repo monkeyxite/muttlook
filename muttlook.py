@@ -151,7 +151,7 @@ def message_from_msgid(msgid):
     nm_cmd = f"notmuch search --output=files id:{msgid}"
     p = subprocess.Popen(nm_cmd.split(" "), stdout=subprocess.PIPE)
     messagefiles, _ = p.communicate()
-    messagefiles = messagefiles.decode("utf-8").split("\n")
+    messagefiles = messagefiles.decode("utf-8").strip().split("\n")
 
     # check return code ok
     assert p.returncode == 0, "notmuch find failed"
@@ -159,8 +159,9 @@ def message_from_msgid(msgid):
     # expecting list of at least 1 message and one empty line
     assert len(messagefiles) > 1, "notmuch found no messages"
 
-    # use first hit and strip surrounding '
-    messagefile = messagefiles[0]
+    # use first hit and strip surrounding -> using the last matching due to 1st has duplicated email folder...
+    logging.info(f"Notmuch search results are: { messagefiles }")
+    messagefile = messagefiles[-1]
 
     # parse message and grab HTML
     message = mailparser.parse_from_file(messagefile)
@@ -339,8 +340,6 @@ def plain2fancy(msg):
         # logging.info("formated message:\n{}\n".format(madness))
 
         # find inline attachments and export them to a temporary dir
-        uuid = shortuuid.uuid(name=reply_to_id)
-        attdir = f"/tmp/muttlook/{uuid}"
         if not os.path.isdir(attdir):
             os.mkdir(attdir)
         # attachments from mail to be replied
@@ -360,7 +359,6 @@ def plain2fancy(msg):
             madness = subprocess.run(pandoc_command, input=latest_reply, capture_output=True, text=True, check=True).stdout
         except subprocess.CalledProcessError as e:
             logging.error(f"Error generating HTML: {e}")
-        attdir = "/tmp/muttlook/"
         attachments = []
 
     # Find inline attachment in reply and change md
@@ -373,18 +371,18 @@ def plain2fancy(msg):
     new_reply = latest_reply
 
     for link in matches:
-        filename = os.path.basename(link)
+        filename = os.path.basename(link).replace(" ","_")
+        destination_path = os.path.join(attdir, filename)
         try:
             os.makedirs(attdir, exist_ok=True)
-            filename = os.path.basename(link)
-            destination_path = os.path.join(attdir, filename)
             shutil.copy(link, destination_path)
-            logging.info(f"File copied to: {attdir}")
+            logging.info(f"File copied to: {destination_path}")
         except Exception as e:
             logging.error(f"Error copying file: {e}")
         # Generate cid acc to Outlook style: filename@uuid
         cid = f"{filename}@{shortuuid.uuid(name=filename)}"
-        cid_mapping[cid] = link
+        # FIX attach the destination link not orignal link!
+        cid_mapping[cid] = destination_path
         new_reply = new_reply.replace(link, f"cid:{cid}")
         # TODO: Seems gmail OK but outlook could not render the inline by using this way, need to fix
         madness = madness.replace(link, f"cid:{cid}") 
