@@ -33,11 +33,12 @@ QUOTE_ESCAPE = "MIMELOOK_QUOTES"
 
 # Setup logging
 import logging
+TEMP_DIR.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    filename=CONFIG['log_file'],
+    filename=str(CONFIG['log_file']),  # Convert Path to string
     filemode="w"
 )
 
@@ -158,7 +159,12 @@ def format_outlook_reply(message, htmltoinsert):
     
     if len(parts) == 1:
         logging.info("org message does not have mail_boundary!")
-        message_html = message.body
+        # Check if body contains HTML tags, if not create minimal HTML structure
+        if not re.search(r"<html|<body", message.body, re.IGNORECASE):
+            logging.info("No HTML structure found, creating minimal HTML wrapper")
+            message_html = f"<html><body>{html.escape(message.body)}</body></html>"
+        else:
+            message_html = message.body
     else:
         # Find part with body tag
         message_html = None
@@ -244,20 +250,13 @@ def plain2fancy(msg):
     latest_reply = reply.latest_reply or ""
     text2html = markdown.markdown(latest_reply) if latest_reply else ""
 
-    # Get original message
-    org_reply_msg = mailparser.parse_from_file(CONFIG['original_msg'])
-    
-    # Handle reply-to message
-    if "In-Reply-To" in org_reply_msg.headers:
-        reply_to_id = org_reply_msg.headers["In-Reply-To"].strip('<>')
-        message = message_from_msgid(reply_to_id)
-        madness = format_outlook_reply(message, text2html)
-        
-        # Export inline attachments
-        TEMP_DIR.mkdir(exist_ok=True)
-        attachments = export_inline_attachments(message, str(TEMP_DIR))
-    else:
-        # New message - use pandoc template
+    # Get original message - check if file exists
+    if not CONFIG['original_msg'].exists():
+        logging.error(f"Original message file not found: {CONFIG['original_msg']}")
+        logging.info("Available files in temp dir:")
+        for f in TEMP_DIR.glob('*'):
+            logging.info(f"  {f}")
+        # Create a simple HTML message without reply context
         try:
             result = subprocess.run([
                 "pandoc", "-f", "markdown", "-t", "html5", 
@@ -266,8 +265,32 @@ def plain2fancy(msg):
             madness = result.stdout
         except subprocess.CalledProcessError as e:
             logging.error(f"Error generating HTML: {e}")
-            madness = ""
+            madness = f"<html><body>{text2html}</body></html>"
         attachments = []
+    else:
+        org_reply_msg = mailparser.parse_from_file(CONFIG['original_msg'])
+        
+        # Handle reply-to message
+        if "In-Reply-To" in org_reply_msg.headers:
+            reply_to_id = org_reply_msg.headers["In-Reply-To"].strip('<>')
+            message = message_from_msgid(reply_to_id)
+            madness = format_outlook_reply(message, text2html)
+            
+            # Export inline attachments
+            TEMP_DIR.mkdir(exist_ok=True)
+            attachments = export_inline_attachments(message, str(TEMP_DIR))
+        else:
+            # New message - use pandoc template
+            try:
+                result = subprocess.run([
+                    "pandoc", "-f", "markdown", "-t", "html5", 
+                    "--standalone", "--template", CONFIG['template']
+                ], input=latest_reply, capture_output=True, text=True, check=True)
+                madness = result.stdout
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Error generating HTML: {e}")
+                madness = ""
+            attachments = []
 
     # Handle inline images in reply
     image_links = re.findall(r"!\[.*?\]\(([^)]+)\)", latest_reply)
@@ -306,18 +329,26 @@ def plain2fancy(msg):
     CONFIG['html_file'].write_text(madness)
     CONFIG['markdown_file'].write_text(new_msg)
 
-    # Generate mutt commands
+    # Generate mutt commands - use original format
     attachment_str = ""
     if attachments:
         for attachment in attachments:
-            attachment_str += f"<attach-file>'{attachment[1]}'<enter><toggle-disposition><edit-content-id>^u'{attachment[0]}'<enter><tag-entry>"
+            attachment_str += "<attach-file>'{}'<enter><toggle-disposition><edit-content-id>^u'{}'<enter><tag-entry>".format(
+                attachment[1], attachment[0]
+            )
 
     if attachment_str:
-        mutt_cmd = f"push <attach-file>'{CONFIG['markdown_file']}'<enter><toggle-disposition><toggle-unlink><first-entry><detach-file><attach-file>'{CONFIG['html_file']}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>{attachment_str}<first-entry><tag-entry><group-related>"
+        mutt_cmd = "push <attach-file>'{}'<enter><toggle-disposition><toggle-unlink><first-entry><detach-file><attach-file>'{}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>{}<first-entry><tag-entry><group-related>".format(
+            CONFIG['markdown_file'], CONFIG['html_file'], attachment_str
+        )
     else:
-        mutt_cmd = f"push <attach-file>'{CONFIG['html_file']}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>"
+        mutt_cmd = "push <attach-file>'{}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>".format(
+            CONFIG['html_file']
+        )
     
     CONFIG['commands_file'].write_text(mutt_cmd)
+    logging.info(f"Mutt command written to: {CONFIG['commands_file']}")
+    logging.info(f"Command: {mutt_cmd}")
 
 def send_hook_cleaner(path):
     """Clean temp files called by send hook."""
@@ -354,7 +385,7 @@ def main(action):
 
 
 if __name__ == "__main__":
-    send_hook_cleaner(str(TEMP_DIR))
+    # send_hook_cleaner(str(TEMP_DIR))  # Temporarily disabled to check logs
     try:
         main()
     except Exception as e:
