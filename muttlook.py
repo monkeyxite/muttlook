@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""This is a extra tool for mutt to reply outlook html mail with markdown power.
-
-Extra depencies and usage refer to Readme.md.
-"""
+"""Tool for mutt to reply outlook html mail with markdown power."""
 
 import base64
 import html
@@ -10,455 +7,356 @@ import os
 import re
 import subprocess
 import sys
-import magic  # python-magic (for mimetypes)
-import mailparser  # mail-parser
-import markdown  # Markdown
-from mailparser_reply import EmailReplyParser
-import logging
-import logging.handlers
+from pathlib import Path
+
+import click
+import magic
+import mailparser
+import markdown
 import shortuuid
 import shutil
-import click
+from mailparser_reply import EmailReplyParser
 
-# due to some reason could not source mutt.cmd
-muttlook_temp_folder = "/tmp/muttlook/"
-commandsFile = "/tmp/muttlook/mutt_cmd"
-markdownFile = "/tmp/muttlook/mimelook-md"
-# orgMsg is generated everything when starting drafting reply via mutt-trim, configed via $editor in mutt  # noqa: E501
-orgMsg = "/tmp/muttlook/original.msg"
-htmlFile = "/tmp/muttlook/mimelook.html"
-logFile = "/tmp/muttlook/mimelog.log"
-newMailHTMLTemplate = "~/.pandoc/templates/email.html"
-# TODO: add Swedish and Chinese later
-languages = ["en", "de"]
-
-
-
-# Configure the logging system
-logging.basicConfig(
-    level=logging.INFO,  # Set the desired log level (INFO, WARNING, ERROR, etc.)
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Define the log message format
-    datefmt="%Y-%m-%d %H:%M:%S",
-    filename=logFile,  # Specify the log file path
-    filemode="w"  # 'w' for write mode, 'a' for append mode (optional, default is 'a')
-    # Define the timestamp format
-)
+# Configuration
+TEMP_DIR = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'muttlook'
+CONFIG = {
+    'commands_file': TEMP_DIR / "mutt_cmd",
+    'markdown_file': TEMP_DIR / "mimelook-md", 
+    'original_msg': TEMP_DIR / "original.msg",
+    'html_file': TEMP_DIR / "mimelook.html",
+    'log_file': TEMP_DIR / "mimelog.log",
+    'template': "~/.pandoc/templates/email.html",
+    'languages': ["en", "de"]
+}
 
 QUOTE_ESCAPE = "MIMELOOK_QUOTES"
+
+# Setup logging
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    filename=CONFIG['log_file'],
+    filemode="w"
+)
+
 mime = magic.Magic(mime=True)
 
 
 def export_inline_attachments(message, dstdir):
-    """Export the inlime attachement in the mail to reply into target dir."""
-    # find inline attachments in plaintext version
-    # inlines = re.findall("\[cid:.*?\]", message.body.split("--- mail_boundary ---")[0])
-    # TODO: better match test like html detect part
+    """Export inline attachments from mail to target directory."""
     try:
         message_html = message.body.split("--- mail_boundary ---")[1]
-    except IndexError as e:
-        logging.error(f"org message does not have mail_boundary: {e} :( )\n")
+        logging.info("org message has mail_boundary :)")
+    except IndexError:
+        logging.error("org message does not have mail_boundary :(")
         message_html = message.body
-    else:
-        logging.info("org message has mail_boundary :) \n")
-    # .. or html version (probably safer?):
-    inlines = re.findall('src="cid:.*?"', message_html)
 
-    # return list of tuples: (attachment id, exported file)
+    # Find inline attachments in HTML
+    inlines = re.findall(r'src="cid:([^"]+)"', message_html)
+    if not inlines:
+        return []
+
     ret = []
-
     for inline in inlines:
-        # find filename
-        name_match = re.search("cid:.*@", inline)
+        # Parse attachment ID
+        attachment_id = inline.replace('cid:', '')
+        
+        # Find corresponding attachment
+        attachment = next(
+            (x for x in message.attachments 
+             if attachment_id in x.get("content-id", "")), 
+            None
+        )
+        
+        if not attachment:
+            logging.error(f"{attachment_id} not found in attachments")
+            continue
 
-        # find content id
-        id_match = re.search("@.*", inline)
-        attachment_id = inline[id_match.start() + 1 : -1] if id_match else inline.replace('"','').replace('src=cid:', '')
+        if attachment.get("content_transfer_encoding") != "base64":
+            logging.warning(f"Skipping non-base64 attachment: {attachment_id}")
+            continue
 
-        # find corresponding attachment in the message
-        attachment_name = inline[name_match.start() + 4 : name_match.end() - 1] if name_match else inline[9:-1]
-        attachment = [
-            x
-            for x in message.attachments
-            # if x["content-id"].startswith(f"<{attachment_name}@{attachment_id}")
-            if x["content-id"].find(f"{attachment_id}".replace("cid:",""))!=-1
-        ]
-        # assert len(attachment) >= 1, f"Could not find {attachment_id}: {attachment_name}"
-        if len(attachment)>=1:
-            attachment = attachment[0]
-        else:
-            logging.error(f"{attachment_id} is not found in msg.attachements")
-            break
+        # Extract filename and create unique path
+        attachment_name = attachment_id.split('@')[0] if '@' in attachment_id else attachment_id
+        dstfile = Path(dstdir) / attachment_name
+        
+        counter = 1
+        while dstfile.exists():
+            stem, suffix = dstfile.stem, dstfile.suffix
+            dstfile = dstfile.parent / f"{stem}_extra{counter}{suffix}"
+            counter += 1
 
-        # base64 decode the file and place it in dstdir
-        assert (
-            attachment["content_transfer_encoding"] == "base64"
-        ), "Only base64 currently supported"
-
-        dstfile = os.path.join(dstdir, attachment_name)
-        while os.path.exists(dstfile):
-            base, ext = os.path.splitext(dstfile)
-            dstfile = f"{base}_extra{ext}"
-
-        b = base64.decodebytes(bytes(attachment["payload"], "ascii"))
-        with open(dstfile, "wb") as f:
-            f.write(b)
-
-        # same attachment might occur multiple times - only add it once
-        att = (f'{attachment_name}@{attachment_id}', dstfile)
-        if att not in ret:
-            ret.append(att)
+        # Decode and save
+        try:
+            content = base64.decodebytes(attachment["payload"].encode('ascii'))
+            dstfile.write_bytes(content)
+            
+            att = (f'{attachment_name}@{attachment_id}', str(dstfile))
+            if att not in ret:
+                ret.append(att)
+        except Exception as e:
+            logging.error(f"Failed to save attachment {attachment_id}: {e}")
 
     return ret
 
 
-# make "from: x, sent: d/m-y, to: z, ..." section in outlook style
-# grabbed from what outlook webmail does
-def format_insane_outlook_header(fromaddr, sent, to, cc, subject):
-    """Format outlook head."""
-    ret = """<hr style="display:inline-block;width:98%" tabindex="-1">
-<div id="divRplyFwdMsg" dir="ltr"><font face="Calibri, sans-serif" style="font-size:11pt" color="#000000"><b>From:</b> {}<br>
-<b>Sent:</b> {}<br>
-""".format(
-        fromaddr, sent
-    )
-
-    if to is not None:
-        ret += f"<b>To:</b> {to}<br>\n"
-
-    if cc is not None:
-        ret += f"<b>Cc:</b> {cc}<br>\n"
-
-    ret += f"""<b>Subject:</b> {subject}</font>
+def format_outlook_header(fromaddr, sent, to, cc, subject):
+    """Format outlook-style header."""
+    header_parts = [
+        f'<b>From:</b> {fromaddr}<br>',
+        f'<b>Sent:</b> {sent}<br>'
+    ]
+    
+    if to:
+        header_parts.append(f'<b>To:</b> {to}<br>')
+    if cc:
+        header_parts.append(f'<b>Cc:</b> {cc}<br>')
+    
+    header_parts.append(f'<b>Subject:</b> {subject}')
+    
+    return f'''<hr style="display:inline-block;width:98%" tabindex="-1">
+<div id="divRplyFwdMsg" dir="ltr">
+<font face="Calibri, sans-serif" style="font-size:11pt" color="#000000">
+{''.join(header_parts)}
+</font>
 <div>&nbsp;</div>
-</div>
-"""
-
-    return ret
+</div>'''
 
 
-# get message_from_pipemsg
 def message_from_pipe(pipe):
     """Get message from pipe."""
-    message = mailparser.parse_from_string(pipe)
-    return message
+    return mailparser.parse_from_string(pipe)
 
 
-# get message from id
 def message_from_msgid(msgid):
-    """Get message from msgid."""
-    # mucmd = "mu find msgid:{} --fields 'l'".format(msgid)
-    # using notmuch
-    nm_cmd = f"notmuch search --output=files id:{msgid}"
-    p = subprocess.Popen(nm_cmd.split(" "), stdout=subprocess.PIPE)
-    messagefiles, _ = p.communicate()
-    messagefiles = messagefiles.decode("utf-8").strip().split("\n")
-
-    # check return code ok
-    assert p.returncode == 0, "notmuch find failed"
-
-    # expecting list of at least 1 message and one empty line
-    assert len(messagefiles) > 1, "notmuch found no messages"
-
-    # use first hit and strip surrounding -> using the last matching due to 1st has duplicated email folder...
-    logging.info(f"Notmuch search results are: { messagefiles }")
-    messagefile = messagefiles[-1]
-
-    # parse message and grab HTML
-    message = mailparser.parse_from_file(messagefile)
-
-    return message
+    """Get message from msgid using notmuch."""
+    try:
+        result = subprocess.run(
+            ["notmuch", "search", "--output=files", f"id:{msgid}"],
+            capture_output=True, text=True, check=True
+        )
+        messagefiles = [f for f in result.stdout.strip().split('\n') if f]
+        
+        if not messagefiles:
+            raise ValueError(f"No messages found for id: {msgid}")
+        
+        logging.info(f"Notmuch search results: {messagefiles}")
+        return mailparser.parse_from_file(messagefiles[-1])
+        
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"notmuch search failed: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse message: {e}")
 
 
 def format_outlook_reply(message, htmltoinsert):
-    """Create crazy outlook-style html reply from message id and the desired html message.""" 
-    # Restruct find html part via mail boundary
-    pattern = r"--- mail_boundary ---"
-    substrings = re.split(pattern, message.body, flags=re.IGNORECASE)
-    if len(substrings) == 1:
-        logging.info("org message does not have mail_boundary! ")
+    """Create outlook-style html reply from message and desired html."""
+    # Extract HTML part from message body
+    parts = re.split(r"--- mail_boundary ---", message.body, flags=re.IGNORECASE)
+    
+    if len(parts) == 1:
+        logging.info("org message does not have mail_boundary!")
         message_html = message.body
-    for _, substring in enumerate(
-        substrings[1:], 1
-    ):  # Skip the first element (before the first match)
-        m = re.search("<body.*?>", substring)
-        if m is not None:
-            message_html = substring.strip()
-            break
     else:
-        message_html = substrings[-1].strip()
-    # convert CRLF to LF
+        # Find part with body tag
+        message_html = None
+        for part in parts[1:]:
+            if re.search(r"<body.*?>", part):
+                message_html = part.strip()
+                break
+        if not message_html:
+            message_html = parts[-1].strip()
+    
+    # Normalize line endings
     message_html = message_html.replace("\r\n", "\n")
-
-    # grab header info
-    message_from = message.headers["From"]
-    message_to = message.headers["To"] if "To" in message.headers else None
-    message_subject = message.headers["Subject"]
-    message_date = message.date.strftime("%d %B %Y %H:%M:%S")
-    message_cc = message.headers["CC"] if "CC" in message.headers else None
-
-    outlook_madness = format_insane_outlook_header(
-        message_from, message_date, message_to, message_cc, message_subject
+    
+    # Extract header information
+    headers = message.headers
+    outlook_header = format_outlook_header(
+        headers.get("From", ""),
+        message.date.strftime("%d %B %Y %H:%M:%S"),
+        headers.get("To"),
+        headers.get("CC"),
+        headers.get("Subject", "")
     )
-
-    # find body tag in html
-    m = re.search("<body.*?>", message_html)
-    assert m is not None, "No body tag found in parent HTML"
-
-    # format resulting html email:
-    # ..<body> from email being replied to
-    # reply message
-    # "from yada yada" section
-    # remainder of email being replied to
-    html = "{}\n{}\n{}\n{}".format(
-        message_html[: m.end()], htmltoinsert, outlook_madness, message_html[m.end() :]
-    )
-
-    return html
+    
+    # Find body tag and insert reply
+    body_match = re.search(r"<body.*?>", message_html)
+    if not body_match:
+        raise ValueError("No body tag found in parent HTML")
+    
+    return f"{message_html[:body_match.end()]}\n{htmltoinsert}\n{outlook_header}\n{message_html[body_match.end():]}"
 
 
 def escape_quotes(plaintext):
-    """Convert "> "-style quotes into something else that passes untouched through html.escape().
-
-    Escaped quotes look like this: [[MIMELOOK_QUOTES|X]] where X denotes the
-    number of quotes that have been escaped.
-    """
-    ret = ""
+    """Convert "> "-style quotes into escaped format."""
+    lines = []
     for line in plaintext.split("\n"):
         if line.startswith(">"):
-            i = 0
-            while i < len(line) and line[i] == ">":
-                i += 1
-            ret += f"[[{QUOTE_ESCAPE}|{i}]]"
-            ret += line[i:] + "\n"
+            quote_count = len(line) - len(line.lstrip(">"))
+            lines.append(f"[[{QUOTE_ESCAPE}|{quote_count}]]" + line[quote_count:])
         else:
-            ret += line + "\n"
-
-    return ret
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def unescape_quotes(string):
-    """Convert previously escaped "> "-style quotes back to their original form.""" 
-    retstr = ""
-    i = 0
-
-    while i < len(string):
-        # find start position of next escaped quote group
-        p = string[i:].find(f"[[{QUOTE_ESCAPE}|")
-
-        if p < 0:
-            # no more escaped quotes - grab the rest of the string and return
-            retstr += string[i:]
-            break
-
-        # found some escaped quotes, grab content of string upto them
-        retstr += string[i : i + p]
-
-        # find end of the escaped quote tag
-        tag_end_pos = string[i + p :].find("]]")
-
-        # grab the number from the tag
-        nquotes = int(string[i + p + 2 + len(QUOTE_ESCAPE) + 1 : i + p + tag_end_pos])
-
-        # append that number of quotes
-        retstr += ">" * nquotes
-
-        # advance to the character just after the tag
-        i += p + tag_end_pos + 2
-
-    return retstr
+    """Convert escaped quotes back to original form."""
+    pattern = rf"\[\[{re.escape(QUOTE_ESCAPE)}\|(\d+)\]\]"
+    return re.sub(pattern, lambda m: ">" * int(m.group(1)), string)
 
 
 def escape_signature_linebreaks(plaintext):
     """Escape signature linebreaks."""
-    m = re.search("^-- ", plaintext, re.MULTILINE)
-    if m is not None:
-        content = plaintext[: m.start()]
-        signature = plaintext[m.start() :]
-        signature = signature.replace("\n", "  \n")
+    sig_match = re.search(r"^-- ", plaintext, re.MULTILINE)
+    if sig_match:
+        content = plaintext[:sig_match.start()]
+        signature = plaintext[sig_match.start():].replace("\n", "  \n")
         return content + signature
-    else:
-        return plaintext
+    return plaintext
 
 
 def find_mime_parts(plaintext):
-    """Find MIME parts in the plaintext.
-
-    Returns plaintext without parts and list of parts
-    Warning: assumes only valid <#part...><#/part> tags after the first occurence of "<#part" !
-    """
-    parts = re.findall("<#part.*?<#/part>", plaintext, re.DOTALL)
-    m = re.search("<#part.*?<#/part>", plaintext, re.DOTALL)
-    if m is not None:
-        text = plaintext[: m.start()]
-    else:
-        text = plaintext
+    """Find MIME parts in plaintext. Returns text without parts and list of parts."""
+    parts = re.findall(r"<#part.*?<#/part>", plaintext, re.DOTALL)
+    first_part = re.search(r"<#part.*?<#/part>", plaintext, re.DOTALL)
+    text = plaintext[:first_part.start()] if first_part else plaintext
     return text, parts
 
 
 def html_escape(text):
-    """Escape HTML.
-
-    Don't escape lines that start with four spaces, since
-    these will be wrapped by <pre> tags by the Markdown-to-html
-    conversion.
-    """
-    ret = ""
+    """Escape HTML, preserving code blocks (lines starting with 4 spaces)."""
+    lines = []
     for line in text.split("\n"):
-        if not line.startswith("    "):
-            ret += html.escape(line) + "\n"
+        if line.startswith("    "):
+            lines.append(line)
         else:
-            ret += line + "\n"
-
-    return ret
+            lines.append(html.escape(line))
+    return "\n".join(lines)
 
 
 def plain2fancy(msg):
-    """Format plaintext to outlook-style reply.
+    """Format plaintext to outlook-style reply."""
+    # Parse reply content
+    reply = EmailReplyParser(languages=CONFIG['languages']).read(text=msg)
+    latest_reply = reply.latest_reply or ""
+    text2html = markdown.markdown(latest_reply) if latest_reply else ""
 
-    Take desired plaintext message and id of message being replied to and format a multipart message with sane plaintext section and
-    insane outlook-style html section. The plaintext message is converted
-    to HTML supporting markdown syntax.
-    """
-    reply = EmailReplyParser(languages=languages).read(text=msg)
-    latest_reply = reply.latest_reply
-    if latest_reply is not None:
-        # plaintext is converted to html, supporting markdown syntax
-        # loosely inspired by http://webcache.googleusercontent.com/search?q=cache:R1RQkhWqwEgJ:tess.oconnor.cx/2008/01/html-email-composition-in-emacs
-        text2html = markdown.markdown(latest_reply)
-    else:
-        latest_reply = ""
-        text2html = ""
-
-    # Q&D way to get msg_id of the orignal msg to reply,  refer orgMsg def
-    org_reply_msg = mailparser.parse_from_file(orgMsg)
-
-    if "In-Reply-To" in org_reply_msg.headers.keys():
-        reply_to_id = org_reply_msg.headers["In-Reply-To"][1:-1]
+    # Get original message
+    org_reply_msg = mailparser.parse_from_file(CONFIG['original_msg'])
+    
+    # Handle reply-to message
+    if "In-Reply-To" in org_reply_msg.headers:
+        reply_to_id = org_reply_msg.headers["In-Reply-To"].strip('<>')
         message = message_from_msgid(reply_to_id)
-        # insane outlook-style html reply
         madness = format_outlook_reply(message, text2html)
-        # logging.info("formated message:\n{}\n".format(madness))
-
-        # find inline attachments and export them to a temporary dir
-        if not os.path.isdir(attdir):
-            os.mkdir(attdir)
-        # attachments from mail to be replied
-        attachments = export_inline_attachments(message, attdir) 
+        
+        # Export inline attachments
+        TEMP_DIR.mkdir(exist_ok=True)
+        attachments = export_inline_attachments(message, str(TEMP_DIR))
     else:
-        reply_to_id = "Message-Radom-ID"
-        madness = ''
-        pandoc_command = [
-                "pandoc",
-                "-f", "markdown",
-                "-t", "html5", "--standalone",
-                "--template", newMailHTMLTemplate
-                ]
+        # New message - use pandoc template
         try:
-            # Run the pandoc command and pass the markdown content as input
-            #pandoc -f markdown -t html5 --standalone --template ~/.pandoc/templates/email.html "$markdownFile" > "$htmlFile"
-            madness = subprocess.run(pandoc_command, input=latest_reply, capture_output=True, text=True, check=True).stdout
+            result = subprocess.run([
+                "pandoc", "-f", "markdown", "-t", "html5", 
+                "--standalone", "--template", CONFIG['template']
+            ], input=latest_reply, capture_output=True, text=True, check=True)
+            madness = result.stdout
         except subprocess.CalledProcessError as e:
             logging.error(f"Error generating HTML: {e}")
+            madness = ""
         attachments = []
 
-    # Find inline attachment in reply and change md
-    # re: !\[([^]]*)\]\(([^)]+)\)
-    # logging.info("reply text after htmlize is: {}\n".format(text2html))
-    link_pattern = r"!\[.*?\]\((.*?)\)"
-    matches = re.findall(link_pattern, latest_reply)
-    # Replace in-line links with CID attachments and modify original links
+    # Handle inline images in reply
+    image_links = re.findall(r"!\[.*?\]\(([^)]+)\)", latest_reply)
     cid_mapping = {}
     new_reply = latest_reply
 
-    for link in matches:
-        filename = os.path.basename(link).replace(" ","_")
-        destination_path = os.path.join(attdir, filename)
+    for link in image_links:
+        filename = Path(link).name.replace(" ", "_")
+        destination_path = TEMP_DIR / filename
+        
         try:
-            os.makedirs(attdir, exist_ok=True)
             shutil.copy(link, destination_path)
             logging.info(f"File copied to: {destination_path}")
+            
+            # Generate CID in Outlook style
+            cid = f"{filename}@{shortuuid.uuid(name=filename)}"
+            cid_mapping[cid] = str(destination_path)
+            
+            # Replace in markdown and HTML
+            new_reply = new_reply.replace(link, f"cid:{cid}")
+            madness = madness.replace(link, f"cid:{cid}")
+            
         except Exception as e:
             logging.error(f"Error copying file: {e}")
-        # Generate cid acc to Outlook style: filename@uuid
-        cid = f"{filename}@{shortuuid.uuid(name=filename)}"
-        # FIX attach the destination link not orignal link!
-        cid_mapping[cid] = destination_path
-        new_reply = new_reply.replace(link, f"cid:{cid}")
-        # TODO: Seems gmail OK but outlook could not render the inline by using this way, need to fix
-        madness = madness.replace(link, f"cid:{cid}") 
 
-    if matches:
-        new_msg = msg.replace(latest_reply, new_reply) 
-        logging.info(f"matches:\n{type(attachments)}\n")
-        attachments +=  list(cid_mapping.items()) if attachments else cid_mapping.items()
-        logging.info(f"matches:\n{str(attachments)}\n")
+    # Update message and attachments
+    if image_links:
+        new_msg = msg.replace(latest_reply, new_reply)
+        attachments.extend(cid_mapping.items())
     else:
         new_msg = msg
 
-    logging.info(f"Final attachments:\n{str(attachments)}\n")
+    logging.info(f"Final attachments: {attachments}")
 
-    # build string of <#part type=x filename=y disposition=inline><#/part> for each
-    # attachment, separated by newlines
+    # Write output files
+    CONFIG['html_file'].write_text(madness)
+    CONFIG['markdown_file'].write_text(new_msg)
+
+    # Generate mutt commands
     attachment_str = ""
     if attachments:
         for attachment in attachments:
-            attachment_str += "<attach-file>'{}'<enter><toggle-disposition><edit-content-id>^u'{}'<enter><tag-entry>".format(
-                attachment[1], attachment[0]
-            )
-    # write html message to file for inspection before sending
-    with open(htmlFile, "w") as f:
-        f.write(madness)
-
-    with open(markdownFile, "w") as f:
-        f.write(new_msg)
+            attachment_str += f"<attach-file>'{attachment[1]}'<enter><toggle-disposition><edit-content-id>^u'{attachment[0]}'<enter><tag-entry>"
 
     if attachment_str:
-        mutt_cmd = "push <attach-file>'{}'<enter><toggle-disposition><toggle-unlink><first-entry><detach-file><attach-file>'{}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>{}<first-entry><tag-entry><group-related>".format(
-            markdownFile, htmlFile, attachment_str
-        )
+        mutt_cmd = f"push <attach-file>'{CONFIG['markdown_file']}'<enter><toggle-disposition><toggle-unlink><first-entry><detach-file><attach-file>'{CONFIG['html_file']}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>{attachment_str}<first-entry><tag-entry><group-related>"
     else:
-        mutt_cmd = "push <attach-file>'{}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>".format(
-            htmlFile
-        )
-    with open(commandsFile, "w") as f:
-        f.write(mutt_cmd)
-    # return madness
+        mutt_cmd = f"push <attach-file>'{CONFIG['html_file']}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>"
+    
+    CONFIG['commands_file'].write_text(mutt_cmd)
 
 def send_hook_cleaner(path):
-    """Clean the temp files by called by send hook."""
-    muttlook_temp_folder = path
-    for root, dirs, files in os.walk(muttlook_temp_folder, topdown=False):
-        for file in files :
-            file_path = os.path.join(root, file)
-            # keep log
-            if ".log" not in file and "_cmd" not in file and "original" not in file:
-                os.remove(file_path)
-            logging.info (f"Deleted file: {file_path}")
+    """Clean temp files called by send hook."""
+    temp_path = Path(path)
+    if not temp_path.exists():
+        return
         
-        for dir_name in dirs:
-            dir_path = os.path.join(root, dir_name)
-            shutil.rmtree(dir_path)
-            logging.info(f"Deleted folder: {dir_path}")
+    for item in temp_path.rglob('*'):
+        if item.is_file():
+            # Keep log files, command files, and original files
+            if not any(ext in item.name for ext in ['.log', '_cmd', 'original']):
+                try:
+                    item.unlink()
+                    logging.info(f"Deleted file: {item}")
+                except Exception as e:
+                    logging.error(f"Failed to delete {item}: {e}")
+        elif item.is_dir() and item != temp_path:
+            try:
+                shutil.rmtree(item)
+                logging.info(f"Deleted folder: {item}")
+            except Exception as e:
+                logging.error(f"Failed to delete {item}: {e}")
 
 
 @click.command()
-@click.option("--action", type=click.Choice(["clean", "draft"]), help="Specify the action to perform.", required=True)
+@click.option("--action", type=click.Choice(["clean", "draft"]), 
+              help="Specify the action to perform.", required=True)
 def main(action):
-    """Wrap with click to have both draft and clean func."""
+    """Main function with click interface."""
     if action == "clean":
-        send_hook_cleaner(muttlook_temp_folder)
+        send_hook_cleaner(str(TEMP_DIR))
     elif action == "draft":
-        stdin = sys.stdin.read()
-        msg = stdin
-        plain2fancy(msg)
+        plain2fancy(sys.stdin.read())
+
 
 if __name__ == "__main__":
-    # stdin from pipe-message is full drafted msg
-    # TODO: let mutt do the hook action, org message is kept...
-    send_hook_cleaner(muttlook_temp_folder)
-
+    send_hook_cleaner(str(TEMP_DIR))
     try:
         main()
     except Exception as e:
-        # logging.info("final message:\n{}\n".format(e))
-        raise e
+        logging.error(f"Error in main: {e}")
+        raise
