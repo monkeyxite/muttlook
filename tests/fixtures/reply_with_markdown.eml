@@ -1,0 +1,27 @@
+From: Jonny Hou <jonny.hou@gmail.com>
+To: Alice <alice@example.com>
+Cc: Bob <bob@example.com>
+Subject: Re: Meeting notes
+In-Reply-To: <abc123@example.com>
+Message-ID: <def456@example.com>
+
+# Summary
+
+- Action item 1
+- Action item 2
+
+| Name | Task |
+|------|------|
+| Alice | Review |
+| Bob | Deploy |
+
+**Next meeting**: Friday 10:00
+
+> On Mon, Apr 5, 2026, Alice wrote:
+> 
+> Hi team,
+> 
+> Please review the notes.
+> 
+> Best,
+> Alice

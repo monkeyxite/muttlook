@@ -1,49 +1,99 @@
 # Muttlook
 
-## Background
+A modern Python tool for mutt to reply to HTML emails (mainly Outlook) with Markdown while preserving original formatting.
 
-Fork from a tool for [mu4e-mimelook](https://github.com/tausen/mu4e-mimelook), creating a mutt assistance tool to reply HTML mail (mainly outlook) without reconstruct the original format, with markdown replies.
+## Features
 
-- Support reply with Markdown but maintain the style
-- Support inline image
+- Reply with Markdown while maintaining original email style
+- Support for inline images with automatic CID handling
+- Built-in email trimming (replaces old Perl mutt-trim)
+- Handles Gmail and Outlook HTML emails
+- Modern Python packaging with uv support
 
-### Other dependencies
+## Installation
 
-There are many tools installed in the machine to run the script for the purpose.
+### Using uv tool (recommended)
+```bash
+uv tool install -e .
+```
+This installs `muttlook` and `mutt-trim` as global CLI tools with all dependencies managed by uv.
 
-- Neomutt (edit-content-id and MIME alternative multipart support) not upstream mutt.
-- Create tmp folder /tmp/muttlook?
-- [Mutt-trim](https://github.com/Konfekt/mutt-trim/blob/master/mutt-trim)
+### Via dotfiles
+If using the dotfiles repo, muttlook is auto-installed by `./install` via dotbot.
 
-### Python dependencies
+### Using pip
+```bash
+pip install -e .
+```
 
-- mail-parser (<https://pypi.org/project/mail-parser/>, tested with v3.9.3)
-- mail-parser-reply (https://github.com/alfonsrv/mail-parser-reply), tested with v3.11
-- Markdown (<https://Python-Markdown.github.io/>, tested with v3.1.1)
-- python-magic (<http://github.com/ahupp/python-magic>, tested with v0.4.15)
-- libmagic (e.g., libmagic1 on Ubuntu or libmagic in homebrew)
+## Dependencies
 
-Tested with Python 3.11.
+- Python 3.8+
+- mailparser (>=3.9.3)
+- mail-parser-reply
+- markdown (>=3.1.1)
+- python-magic (>=0.4.15)
+- shortuuid
+- click
+
+### System dependencies
+- libmagic (macOS: `brew install libmagic`, Ubuntu: `libmagic1`)
+- Neomutt with MIME support
+- Pandoc (for HTML template processing)
 
 ## Usage
 
-1. Modify muttrc 
-2. Modify mutt-trim
+### Commands
+- `muttlook --action draft` - Process draft email
+- `muttlook --action clean` - Clean temporary files
+- `mutt-trim <mail_file>` - Trim quoted content from email
 
-## To-do
+### Mutt Configuration
 
-- [x] Clean LSP diagnostics (unbound/…)
-- [ ] regex to filler out already cid or remote links
-- [ ] refectory and better documentation
-- [ ] clean madness after send: copy markdown attachment into tmp folder to enable so.
-- [ ] Test case for other occasions:
-    - Gmail HTML
-    - Gmail plain text
-    - Outlook HTML  
-    - Outlook plain text.
+Add to your `.muttrc`:
+```
+# Use muttlook for HTML replies
+set editor = "muttlook --action draft"
+send-hook . "muttlook --action clean"
+
+# Use Python mutt-trim instead of Perl version
+set display_filter = "mutt-trim"
+```
+
+### File Structure
+- `~/.cache/muttlook/` - Temporary files and cache
+- `~/.pandoc/templates/email.html` - Email template (optional)
+
+## How it Works
+
+1. **Email Trimming**: Removes quoted greetings, signatures, and excessive quote levels
+2. **Markdown Processing**: Converts your Markdown reply to HTML
+3. **Image Handling**: Automatically converts image links to CID attachments
+4. **HTML Integration**: Embeds your reply into the original email structure
+5. **Mutt Commands**: Generates appropriate mutt commands for MIME handling
+
+## Configuration
+
+The tool uses these temporary files:
+- `original.msg` - Original email for reply context
+- `mimelook.html` - Generated HTML content
+- `mimelook-md` - Processed Markdown content
+- `mutt_cmd` - Generated mutt commands
+
+## Development
+
+```bash
+# Install in editable mode
+uv tool install -e . --force
+
+# Run linting
+ruff check .
+
+# Format code
+ruff format .
+```
 
 ## Credits
 
-- [mu4e-mimelook](https://github.com/tausen/mu4e-mimelook)
-- [convert-multipart](https://git.jonathanh.co.uk/jab2870/Dotfiles/src/commit/08af357f4445e40e98c715faab6bb3b075ec8afa/bin/.bin/emails/convert-multipart)
-- [MIMEmbellish](https://gist.github.com/oblitum/6eeffaebd9a4744e762e49e6eb19d189#file-mimembellish)
+- [mu4e-mimelook](https://github.com/tausen/mu4e-mimelook) - Original inspiration
+- [Konfekt/mutt-trim](https://github.com/Konfekt/mutt-trim) - Original Perl trimming logic

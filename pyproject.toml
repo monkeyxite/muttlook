@@ -1,3 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "muttlook"
+version = "0.1.0"
+description = "Tool for mutt to reply outlook html mail with markdown power"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "click",
+    "mail-parser>=3.9.3",
+    "mail-parser-reply",
+    "markdown>=3.1.1",
+    "python-magic>=0.4.15",
+    "shortuuid",
+]
+
+[project.scripts]
+muttlook = "muttlook:main"
+mutt-trim = "muttlook.mutt_trim:main"
+
 [tool.ruff]
 # Enable the pycodestyle (`E`) and Pyflakes (`F`) rules by default.
 # Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
