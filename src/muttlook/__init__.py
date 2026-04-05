@@ -253,8 +253,47 @@ def plain2fancy(msg):
     # Parse reply content
     reply = EmailReplyParser(languages=CONFIG["languages"]).read(text=msg)
     latest_reply = reply.latest_reply or ""
+
+    # Convert Obsidian callouts (> [!type] title) to HTML before markdown processing
+    def convert_obsidian_callouts(text):
+        lines = text.split("\n")
+        result = []
+        i = 0
+        while i < len(lines):
+            m = re.match(r"^>\s*\[!(\w+)\]\s*(.*)", lines[i])
+            if m:
+                ctype, title = m.group(1), m.group(2) or m.group(1).title()
+                body_lines = []
+                i += 1
+                while i < len(lines) and lines[i].startswith(">"):
+                    body_lines.append(lines[i].lstrip("> "))
+                    i += 1
+                body = "<br>".join(body_lines)
+                result.append(
+                    f'<div style="border-left:4px solid #4a9eff;padding:8px 12px;margin:8px 0;background:#f0f7ff">'
+                    f"<strong>{ctype.upper()}: {title}</strong><br>{body}</div>"
+                )
+            else:
+                result.append(lines[i])
+                i += 1
+        return "\n".join(result)
+
+    latest_reply = convert_obsidian_callouts(latest_reply)
+
     text2html = (
-        markdown.markdown(latest_reply, extensions=["tables", "fenced_code", "nl2br"])
+        markdown.markdown(
+            latest_reply,
+            extensions=[
+                "tables",
+                "fenced_code",
+                "nl2br",
+                "toc",
+                "def_list",
+                "sane_lists",
+                "pymdownx.tasklist",
+                "pymdownx.tilde",
+            ],
+        )
         if latest_reply
         else ""
     )
