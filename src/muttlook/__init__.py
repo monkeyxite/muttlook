@@ -26,7 +26,7 @@ CONFIG = {
     "original_msg": TEMP_DIR / "original.msg",
     "html_file": TEMP_DIR / "mimelook.html",
     "log_file": TEMP_DIR / "mimelog.log",
-    "template": "~/.pandoc/templates/email.html",
+    "template": "~/.local/share/pandoc/templates/email.html",
     "languages": ["en", "de"],
 }
 
@@ -279,6 +279,11 @@ def plain2fancy(msg):
         return "\n".join(result)
 
     latest_reply = convert_obsidian_callouts(latest_reply)
+
+    # Ensure blank lines before lists/checklists (markdown requires them)
+    latest_reply = re.sub(r"(\S)\n(- \[[ x]\])", r"\1\n\n\2", latest_reply)
+    latest_reply = re.sub(r"(\S)\n(- )", r"\1\n\n\2", latest_reply)
+    latest_reply = re.sub(r"(\S)\n(\d+\. )", r"\1\n\n\2", latest_reply)
 
     text2html = (
         markdown.markdown(
