@@ -5,6 +5,7 @@ A modern Python tool for mutt/neomutt to reply to HTML emails (mainly Outlook) w
 ## Features
 
 - Reply with Markdown while maintaining original email style
+- **View HTML emails** in browser with inline images resolved (replaces muttils `viewhtmlmsg`)
 - Supported markdown: headings, bold/italic, tables, code fences, lists, ~~strikethrough~~, checklists (`- [x]`), Obsidian-style callouts (`> [!note]`)
 - Support for inline images with automatic CID handling
 - Built-in email trimming (replaces old Perl mutt-trim)
@@ -14,11 +15,15 @@ A modern Python tool for mutt/neomutt to reply to HTML emails (mainly Outlook) w
 
 ## Installation
 
-### Using uv tool (recommended)
+### From GitHub (recommended)
+```bash
+uv tool install "muttlook @ git+https://github.com/monkeyxite/mutt-mimelook.git" --force
+```
+
+### From local clone
 ```bash
 uv tool install -e .
 ```
-This installs `muttlook` and `mutt-trim` as global CLI tools with all dependencies managed by uv.
 
 ### Via dotfiles
 If using the dotfiles repo, muttlook is auto-installed by `./install` via dotbot.
@@ -44,6 +49,7 @@ If using the dotfiles repo, muttlook is auto-installed by `./install` via dotbot
 
 ### Commands
 - `muttlook --action draft` — Process piped email draft, generate HTML reply + mutt commands
+- `muttlook --action view` — View HTML email in browser with inline images resolved
 - `muttlook --action clean` — Clean temporary files
 - `mutt-trim <mail_file>` — Trim quoted content from email
 
@@ -54,6 +60,11 @@ In your `muttrc`, use the compose macro to convert markdown reply to HTML:
 macro compose ,m "<first-entry>\
 <pipe-entry>muttlook --action draft<enter>\
 <enter-command>source ~/.cache/muttlook/mutt_cmd<enter>" "reply with md→html"
+```
+
+View HTML email in browser (replaces `viewhtmlmsg`):
+```muttrc
+macro pager,attach ,w "<pipe-message>muttlook --action view<enter>" "view HTML in browser"
 ```
 
 ### Neovim Integration
