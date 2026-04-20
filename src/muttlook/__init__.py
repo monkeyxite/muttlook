@@ -285,6 +285,11 @@ def plain2fancy(msg):
     latest_reply = re.sub(r"(\S)\n(- )", r"\1\n\n\2", latest_reply)
     latest_reply = re.sub(r"(\S)\n(\d+\. )", r"\1\n\n\2", latest_reply)
 
+    # Convert Obsidian-style checkboxes to standard markdown before pymdownx
+    latest_reply = re.sub(r"- \[/\]", "- [x] ◐", latest_reply)   # in-progress (half circle)
+    latest_reply = re.sub(r"- \[-\]", "- [x] ―", latest_reply)   # cancelled (dash)
+    latest_reply = re.sub(r"- \[>\]", "- [ ] ▷", latest_reply)   # deferred (triangle)
+
     text2html = (
         markdown.markdown(
             latest_reply,
@@ -428,6 +433,47 @@ def plain2fancy(msg):
     logging.info(f"Command: {mutt_cmd}")
 
 
+def view_html(pipe):
+    """View HTML email in browser with inline images resolved."""
+    message = message_from_pipe(pipe)
+    viewdir = TEMP_DIR / "view"
+    if viewdir.exists():
+        shutil.rmtree(viewdir)
+    viewdir.mkdir(parents=True, exist_ok=True)
+
+    # Get HTML body
+    parts = re.split(r"--- mail_boundary ---", message.body, flags=re.IGNORECASE)
+    body_html = None
+    for part in parts:
+        if re.search(r"<html|<body", part, re.IGNORECASE):
+            body_html = part.strip()
+            break
+    if not body_html:
+        body_html = f"<html><body><pre>{html.escape(message.body)}</pre></body></html>"
+
+    # Export inline images and rewrite CID references to local files
+    for att in message.attachments:
+        cid = att.get("content-id", "").strip("<>")
+        if not cid:
+            continue
+        fname = cid.split("@")[0] if "@" in cid else cid
+        fpath = viewdir / fname
+        try:
+            content = base64.decodebytes(att["payload"].encode("ascii"))
+            fpath.write_bytes(content)
+            body_html = body_html.replace(f"cid:{cid}", str(fpath))
+        except Exception:
+            pass
+
+    outfile = viewdir / "message.html"
+    outfile.write_text(body_html)
+
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(outfile)])
+    else:
+        subprocess.run(["xdg-open", str(outfile)])
+
+
 def send_hook_cleaner(path):
     """Clean temp files called by send hook."""
     temp_path = Path(path)
@@ -454,7 +500,7 @@ def send_hook_cleaner(path):
 @click.command()
 @click.option(
     "--action",
-    type=click.Choice(["clean", "draft"]),
+    type=click.Choice(["clean", "draft", "view"]),
     help="Specify the action to perform.",
     required=True,
 )
@@ -464,6 +510,8 @@ def main(action):
         send_hook_cleaner(str(TEMP_DIR))
     elif action == "draft":
         plain2fancy(sys.stdin.read())
+    elif action == "view":
+        view_html(sys.stdin.read())
 
 
 if __name__ == "__main__":
