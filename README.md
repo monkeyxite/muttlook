@@ -18,7 +18,7 @@ A unified Python tool for reading, replying, and composing HTML emails in mutt/n
 
 ```bash
 # From GitHub
-uv tool install "muttlook @ git+https://github.com/youruser/mutt-mimelook.git" --force
+uv tool install "muttlook @ git+https://github.com/monkeyxite/muttlook.git" --force
 
 # From local clone
 uv tool install -e . --force
@@ -28,11 +28,11 @@ uv tool install -e . --force
 
 ### Python (auto-installed)
 
-click, mail-parser (>=3.9.3), mail-parser-reply, markdown (>=3.1.1), pymdown-extensions (>=10.0), shortuuid
+click, mail-parser (>=3.9.3), mail-parser-reply, markdown (>=3.1.1), pymdown-extensions (>=10.0), rich (>=13.0), shortuuid
 
 ### System
 
-- `html2text` — Rust crate (`cargo install html2text`) for TUI rendering
+- `html2text` — Rust crate (`cargo install html2text-cli`) for TUI rendering (`--colour` mode)
 - Pandoc — HTML template processing for new messages
 - Notmuch — finding original messages by Message-ID
 - Neomutt — MUA integration
@@ -43,6 +43,7 @@ click, mail-parser (>=3.9.3), mail-parser-reply, markdown (>=3.1.1), pymdown-ext
 |--------|-------|--------|----------|
 | `--action tui <file>` | Raw HTML file | Styled ANSI text to stdout | Neomutt mailcap pager, nm-html-extract |
 | `--action tui` (stdin) | Full RFC822 email | Styled ANSI text to stdout | Pipe from notmuch show |
+| `--action tui-rich` | Raw HTML file or RFC822 | Rich-styled ANSI text | Experimental alternative renderer |
 | `--action view` (stdin) | Full RFC822 email | Opens HTML in browser | `,w` macro, nms Ctrl+O |
 | `--action draft` (stdin) | Email draft from neomutt | HTML file + mutt_cmd | `,m` macro, nms Ctrl+R |
 | `--action clean` | — | Removes temp files | Send hook cleanup |
