@@ -1,0 +1,43 @@
+From: Kai Tanaka <kai.tanaka@example.com>
+To: Alice <alice@example.com>
+Subject: Sprint review notes
+Message-ID: <obsidian001@example.com>
+
+# Sprint Review
+
+> [!info] Key Takeaway
+> We shipped 3 features this sprint.
+> Performance improved by 20%.
+
+> [!warning] Risk
+> Database migration pending.
+
+## Tasks
+
+- [x] Deploy to staging
+- [ ] Write docs
+- [/] Code review in progress
+- [-] Cancelled: legacy cleanup
+- [>] Deferred: API redesign
+
+## Definitions
+
+Term 1
+:   Definition of term 1
+
+Term 2
+:   Definition of term 2
+
+## Formatting
+
+This has ~~strikethrough~~ text and **bold** and `inline code`.
+
+```python
+def hello():
+    print("world")
+```
+
+| Sprint | Points | Status |
+|--------|--------|--------|
+| 42     | 34     | Done   |
+| 43     | 21     | Active |

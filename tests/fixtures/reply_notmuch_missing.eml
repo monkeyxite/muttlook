@@ -1,0 +1,9 @@
+From: Kai Tanaka <kai.tanaka@example.com>
+To: Alice <alice@example.com>
+Subject: Re: Meeting notes
+In-Reply-To: <nonexistent-message-id-99999@example.com>
+Message-ID: <jkl012@example.com>
+
+Replying to a message that notmuch can't find.
+
+Should fall back to new message mode.

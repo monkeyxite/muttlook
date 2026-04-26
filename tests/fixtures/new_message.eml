@@ -1,0 +1,11 @@
+From: Kai Tanaka <kai.tanaka@example.com>
+To: Bob <bob@example.com>
+Subject: New project kickoff
+Message-ID: <new001@example.com>
+
+# Kickoff
+
+Let's start the new project.
+
+- [ ] Setup repo
+- [x] Create Slack channel

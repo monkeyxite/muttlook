@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 import click
-import magic
+
 import mailparser
 import markdown
 import shortuuid
@@ -43,7 +43,7 @@ logging.basicConfig(
     filemode="w",
 )
 
-mime = magic.Magic(mime=True)
+
 
 
 def export_inline_attachments(message, dstdir):
@@ -340,16 +340,28 @@ def plain2fancy(msg):
     else:
         org_reply_msg = mailparser.parse_from_file(CONFIG["original_msg"])
 
-        # Handle reply-to message
+        # Find reply-to message ID: In-Reply-To first, then last References entry
+        reply_to_id = None
         if "In-Reply-To" in org_reply_msg.headers:
             reply_to_id = org_reply_msg.headers["In-Reply-To"].strip("<>")
-            message = message_from_msgid(reply_to_id)
-            madness = format_outlook_reply(message, text2html)
+        elif "References" in org_reply_msg.headers:
+            refs = org_reply_msg.headers["References"].strip().split()
+            if refs:
+                reply_to_id = refs[-1].strip("<>")
 
-            # Export inline attachments
-            TEMP_DIR.mkdir(exist_ok=True)
-            attachments = export_inline_attachments(message, str(TEMP_DIR))
-        else:
+        if reply_to_id:
+            try:
+                message = message_from_msgid(reply_to_id)
+                madness = format_outlook_reply(message, text2html)
+
+                # Export inline attachments
+                TEMP_DIR.mkdir(exist_ok=True)
+                attachments = export_inline_attachments(message, str(TEMP_DIR))
+            except (RuntimeError, Exception) as e:
+                logging.warning(f"Could not fetch reply-to message: {e}, falling back to new message mode")
+                reply_to_id = None
+
+        if not reply_to_id:
             # New message - use pandoc template
             try:
                 result = subprocess.run(
@@ -466,12 +478,201 @@ def view_html(pipe):
             pass
 
     outfile = viewdir / "message.html"
-    outfile.write_text(body_html)
+    # Force UTF-8 charset — mailparser decodes to Python str (UTF-8),
+    # but original HTML may declare a different charset (e.g. Windows-1252)
+    body_html = re.sub(
+        r'(<meta[^>]*charset=)["\']?[^"\';>\s]+["\']?',
+        r'\1"utf-8"',
+        body_html,
+        flags=re.IGNORECASE,
+    )
+    if "charset" not in body_html.lower():
+        body_html = f'<meta charset="utf-8">\n{body_html}'
+    outfile.write_text(body_html, encoding="utf-8")
 
     if sys.platform == "darwin":
         subprocess.run(["open", str(outfile)])
     else:
         subprocess.run(["xdg-open", str(outfile)])
+
+
+def view_tui(pipe, renderer=None):
+    """View HTML email in terminal with styled ANSI output."""
+    if renderer is None:
+        renderer = render_html_to_ansi
+    message = message_from_pipe(pipe)
+
+    # Get HTML body
+    parts = re.split(r"--- mail_boundary ---", message.body, flags=re.IGNORECASE)
+    body_html = None
+    for part in parts:
+        if re.search(r"<html|<body", part, re.IGNORECASE):
+            body_html = part.strip()
+            break
+    if not body_html:
+        print(message.body)
+        return
+
+    print(renderer(body_html))
+
+
+def render_html_to_ansi(html_text, width=120):
+    """Render HTML to styled ANSI terminal text (default: html2text --colour pipeline).
+
+    Pipeline: Outlook preprocess → html2text --colour → ANSI remap → header dim → Teams strip
+    """
+    import shutil
+
+    # Phase 1: Outlook MsoNormal preprocessing
+    html_text = re.sub(r"<o:p></o:p>", "", html_text)
+    html_text = re.sub(
+        r'<p\s+class="MsoNormal"[^>]*>\s*(?:<[^>]+>\s*)*&nbsp;\s*(?:<[^>]+>\s*)*</p>',
+        "\n<br>\n",
+        html_text,
+    )
+    html_text = re.sub(r'</p>\s*<p\s+class="MsoNormal"[^>]*>', " ", html_text)
+
+    # Phase 2: html2text --colour (Rust binary)
+    h2t = shutil.which("html2text", path=os.path.expanduser("~/.local/share/cargo/bin"))
+    if not h2t:
+        h2t = shutil.which("html2text")
+    if not h2t:
+        return re.sub(r"<[^>]+>", "", html_text)
+
+    result = subprocess.run(
+        [h2t, "-w", str(width), "--colour"],
+        input=html_text,
+        capture_output=True,
+        text=True,
+    )
+    text = result.stdout
+
+    # Phase 3: ANSI remap + header dimming + cleanup
+    lines = text.split("\n")
+    out = []
+    in_hdr = False
+    prev_blank = False
+
+    for line in lines:
+        line = re.sub(r"\[cid:[^\]]*\]", "", line)
+        stripped = re.sub(r"\x1b\[[^m]*m", "", line)
+        if re.match(r"^(From|Sent|To|Cc|Subject|When|Where|Importance|Date):", stripped):
+            in_hdr = True
+        elif in_hdr and stripped.strip() == "":
+            in_hdr = False
+        # Remap bold yellow → purple
+        line = line.replace("\x1b[38;5;11m", "\x1b[35m")
+        if in_hdr:
+            line = re.sub(r"\x1b\[[^m]*m", "", line)
+            line = f"\x1b[90m{line}\x1b[0m"
+        if re.match(r"^-{3,}\s*(Original|Forwarded)", stripped):
+            line = re.sub(r"\x1b\[[^m]*m", "", line)
+            line = f"\x1b[90m{line}\x1b[0m"
+        # Markdown headers → bold blue/cyan
+        line = re.sub(r"^### (.*)$", "\x1b[1;36m\\1\x1b[0m", line)
+        line = re.sub(r"^## (.*)$", "\x1b[1;36m\\1\x1b[0m", line)
+        line = re.sub(r"^# (.*)$", "\x1b[1;34m\\1\x1b[0m", line)
+        # Teams boilerplate
+        if re.match(r"_{10,}", line):
+            continue
+        if re.search(r"Microsoft Teams meeting|Meeting ID:", line):
+            continue
+        is_blank = line.strip() == ""
+        if is_blank and prev_blank:
+            continue
+        prev_blank = is_blank
+        out.append(line)
+
+    return "\n".join(out)
+
+
+def render_html_rich(html_text, width=120):
+    """Render HTML to styled ANSI terminal text (experimental Rich pipeline).
+
+    Pipeline: Outlook preprocess → html2text (plain) → Rich Markdown renderer
+    """
+    import shutil
+    from io import StringIO
+
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.theme import Theme
+
+    html_text = re.sub(r"<o:p></o:p>", "", html_text)
+    html_text = re.sub(
+        r'<p\s+class="MsoNormal"[^>]*>\s*(?:<[^>]+>\s*)*&nbsp;\s*(?:<[^>]+>\s*)*</p>',
+        "\n<br>\n",
+        html_text,
+    )
+    html_text = re.sub(r'</p>\s*<p\s+class="MsoNormal"[^>]*>', " ", html_text)
+    html_text = re.sub(r'(<t[dh][^>]*>)\s*<b\b[^>]*>(.*?)</b>\s*', r'\1\2', html_text, flags=re.DOTALL | re.IGNORECASE)
+    html_text = re.sub(r'(<t[dh][^>]*>)\s*<strong\b[^>]*>(.*?)</strong>\s*', r'\1\2', html_text, flags=re.DOTALL | re.IGNORECASE)
+
+    h2t = shutil.which("html2text", path=os.path.expanduser("~/.local/share/cargo/bin"))
+    if not h2t:
+        h2t = shutil.which("html2text")
+    if not h2t:
+        return re.sub(r"<[^>]+>", "", html_text)
+
+    result = subprocess.run([h2t, "-w", str(width)], input=html_text, capture_output=True, text=True)
+    md_text = result.stdout
+    md_text = re.sub(r"\[cid:[^\]]*\]", "", md_text)
+    md_text = re.sub(r"_{10,}\n", "", md_text)
+    md_text = re.sub(r"Microsoft Teams meeting\n.*?Meeting ID:[^\n]*\n", "", md_text, flags=re.DOTALL)
+
+    lines = md_text.split("\n")
+    processed = []
+    in_hdr = False
+    for line in lines:
+        stripped = line.replace("**", "")
+        if re.match(r"^(From|Sent|To|Cc|Subject|When|Where|Importance|Date):", stripped):
+            in_hdr = True
+        elif in_hdr and stripped.strip() == "":
+            in_hdr = False
+        if in_hdr:
+            line = line.replace("**", "")
+            processed.append(f"\x1b[90m{line}\x1b[0m")
+        elif re.match(r"^-{3,}\s*(Original|Forwarded)", line):
+            processed.append(f"\x1b[90m{line}\x1b[0m")
+        else:
+            processed.append(line)
+
+    buf = StringIO()
+    tn_theme = Theme({
+        "markdown.h1": "bold blue", "markdown.h2": "bold cyan",
+        "markdown.h3": "bold cyan", "markdown.h4": "bold cyan",
+        "markdown.code": "blue", "markdown.strong": "bold magenta",
+    })
+    console = Console(file=buf, width=width, force_terminal=True, theme=tn_theme)
+    md_block = []
+    for line in processed:
+        if "\x1b[90m" in line or re.search(r"[\u2500\u2502\u253c\u252c\u2534\u251c\u2524\u250c\u2510\u2514\u2518]", line):
+            if md_block:
+                console.print(Markdown("\n".join(md_block)))
+                md_block = []
+            buf.write(line + "\n")
+        else:
+            md_block.append(line)
+    if md_block:
+        console.print(Markdown("\n".join(md_block)))
+
+    output = buf.getvalue()
+    out_lines = output.split("\n")
+    cleaned = []
+    prev_blank = False
+    for line in out_lines:
+        if re.search(r"[\u2500\u2502\u253c\u252c\u2534\u251c\u2524\u250c\u2510\u2514\u2518]", line):
+            line = line.replace("**", "")
+        else:
+            line = re.sub(r"\*\*([^*]+)\*\*", lambda m: f"\x1b[1;35m{m.group(1)}\x1b[0m", line)
+            line = line.replace("**", "")
+        line = line.rstrip()
+        is_blank = line == ""
+        if is_blank and prev_blank:
+            continue
+        prev_blank = is_blank
+        cleaned.append(line)
+    return "\n".join(cleaned)
 
 
 def send_hook_cleaner(path):
@@ -500,11 +701,12 @@ def send_hook_cleaner(path):
 @click.command()
 @click.option(
     "--action",
-    type=click.Choice(["clean", "draft", "view"]),
+    type=click.Choice(["clean", "draft", "view", "tui", "tui-rich"]),
     help="Specify the action to perform.",
     required=True,
 )
-def main(action):
+@click.argument("file", required=False, type=click.Path(exists=True))
+def main(action, file):
     """Main function with click interface."""
     if action == "clean":
         send_hook_cleaner(str(TEMP_DIR))
@@ -512,6 +714,20 @@ def main(action):
         plain2fancy(sys.stdin.read())
     elif action == "view":
         view_html(sys.stdin.read())
+    elif action in ("tui", "tui-rich"):
+        renderer = render_html_rich if action == "tui-rich" else render_html_to_ansi
+        if file:
+            with open(file, "rb") as f:
+                raw = f.read()
+            charset_m = re.search(rb'charset=([^\s"\'>;]+)', raw)
+            charset = charset_m.group(1).decode("ascii", errors="ignore") if charset_m else "utf-8"
+            try:
+                html_text = raw.decode(charset)
+            except (UnicodeDecodeError, LookupError):
+                html_text = raw.decode("utf-8", errors="replace")
+            print(renderer(html_text))
+        else:
+            view_tui(sys.stdin.read(), renderer=renderer)
 
 
 if __name__ == "__main__":
