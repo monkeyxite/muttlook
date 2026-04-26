@@ -427,9 +427,7 @@ def plain2fancy(msg):
     attachment_str = ""
     if attachments:
         for attachment in attachments:
-            attachment_str += "<attach-file>'{}'<enter><toggle-disposition><edit-content-id>^u'{}'<enter><tag-entry>".format(
-                attachment[1], attachment[0]
-            )
+            attachment_str += f"<attach-file>'{attachment[1]}'<enter><toggle-disposition><edit-content-id>^u'{attachment[0]}'<enter><tag-entry>"
 
     if attachment_str:
         mutt_cmd = "push <attach-file>'{}'<enter><toggle-disposition><toggle-unlink><first-entry><detach-file><attach-file>'{}'<enter><toggle-disposition><toggle-unlink><tag-entry><previous-entry><tag-entry><group-alternatives>{}<first-entry><tag-entry><group-related>".format(
