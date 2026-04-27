@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "muttlook"
-version = "0.1.0"
+version = "0.1.1"
 description = "Tool for mutt to reply outlook html mail with markdown power"
 readme = "README.md"
 requires-python = ">=3.8"

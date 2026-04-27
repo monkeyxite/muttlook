@@ -455,7 +455,7 @@ def view_html(pipe):
     parts = re.split(r"--- mail_boundary ---", message.body, flags=re.IGNORECASE)
     body_html = None
     for part in parts:
-        if re.search(r"<html|<body", part, re.IGNORECASE):
+        if re.search(r"<html|<body|<table|<div", part, re.IGNORECASE):
             body_html = part.strip()
             break
     if not body_html:
@@ -504,7 +504,7 @@ def view_tui(pipe, renderer=None):
     parts = re.split(r"--- mail_boundary ---", message.body, flags=re.IGNORECASE)
     body_html = None
     for part in parts:
-        if re.search(r"<html|<body", part, re.IGNORECASE):
+        if re.search(r"<html|<body|<table|<div", part, re.IGNORECASE):
             body_html = part.strip()
             break
     if not body_html:

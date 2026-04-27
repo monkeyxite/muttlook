@@ -1,0 +1,45 @@
+From: Alice Smith <alice.smith@example.com>
+To: Bob <bob@example.com>
+Subject: Q2 Review Meeting Notes
+Message-ID: <outlook-html@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.MsoNormal { margin: 0; font-family: Calibri, sans-serif; font-size: 11pt; }
+</style>
+</head>
+<body lang="EN-US">
+<div class="WordSection1">
+<p class="MsoNormal">Hi Bob,</p>
+<p class="MsoNormal">&nbsp;</p>
+<p class="MsoNormal">Here are the notes from today's Q2 review:</p>
+<ul>
+<li class="MsoNormal"><b>Revenue</b>: On track (+12% YoY)</li>
+<li class="MsoNormal"><b>Headcount</b>: 3 open reqs</li>
+</ul>
+<p class="MsoNormal">&nbsp;</p>
+<p class="MsoNormal"><b>Action items:</b></p>
+<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse">
+<tr><td><b>Owner</b></td><td><b>Task</b></td><td><b>Due</b></td></tr>
+<tr><td>Alice</td><td>Update forecast</td><td>May 5</td></tr>
+<tr><td>Bob</td><td>Hire plan draft</td><td>May 10</td></tr>
+</table>
+<p class="MsoNormal">&nbsp;</p>
+<p class="MsoNormal">Best regards,</p>
+<p class="MsoNormal">Alice</p>
+<div>
+<div style="border:none;border-top:solid #E1E1E1 1.0pt;padding:3.0pt 0 0 0">
+<p class="MsoNormal"><b>From:</b> Bob &lt;bob@example.com&gt;<br>
+<b>Sent:</b> Monday, April 21, 2026 10:00 AM<br>
+<b>To:</b> Alice Smith &lt;alice.smith@example.com&gt;<br>
+<b>Subject:</b> Re: Q2 Review Meeting Notes</p>
+</div>
+</div>
+<p class="MsoNormal">Can you send the notes?</p>
+</div>
+</body>
+</html>

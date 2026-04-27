@@ -260,3 +260,105 @@ def test_tui_action_via_cli():
     )
     assert result.returncode == 0, f"tui action failed: {result.stderr}"
     assert "Kickoff" in result.stdout or "new project" in result.stdout
+
+
+def test_view_bare_html_table():
+    """Test that HTML email with bare <table> (no <html>/<body>) renders, not escapes."""
+    result = subprocess.run(
+        ["muttlook", "--action", "view"],
+        input=(FIXTURES / "bare_html_table.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"muttlook failed: {result.stderr}"
+    outfile = Path.home() / ".cache" / "muttlook" / "view" / "message.html"
+    assert outfile.exists(), "HTML output not generated"
+    html = outfile.read_text()
+    assert "&lt;table" not in html, "HTML was escaped instead of rendered"
+    assert "<table" in html, "Table tag missing from output"
+    assert "sommarfys" in html, "Email content missing"
+
+
+def test_tui_bare_html_table():
+    """Test that TUI rendering of bare <table> HTML produces readable text."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "bare_html_table.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"tui action failed: {result.stderr}"
+    assert "sommarfys" in result.stdout, "Email content not rendered"
+    assert "<table" not in result.stdout, "Raw HTML leaked into TUI output"
+
+
+# --- Outlook HTML email tests ---
+
+
+def _strip_ansi(text):
+    """Remove ANSI escape codes for assertion matching."""
+    import re
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
+def test_view_outlook_html():
+    """Test Outlook-style HTML email renders in browser view."""
+    result = subprocess.run(
+        ["muttlook", "--action", "view"],
+        input=(FIXTURES / "outlook_html.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"muttlook failed: {result.stderr}"
+    outfile = Path.home() / ".cache" / "muttlook" / "view" / "message.html"
+    html = outfile.read_text()
+    assert "<table" in html, "Table not preserved"
+    assert "Update forecast" in html, "Table content missing"
+    assert "MsoNormal" in html or "Q2 review" in html.lower() or "Hi Bob" in html, "Email body missing"
+
+
+def test_tui_outlook_html():
+    """Test Outlook-style HTML email renders in TUI."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "outlook_html.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"tui failed: {result.stderr}"
+    plain = _strip_ansi(result.stdout).lower()
+    assert "q2 review" in plain, "Email body not rendered"
+    assert "update forecast" in plain, "Table content not rendered"
+    assert "<table" not in result.stdout, "Raw HTML leaked into TUI"
+
+
+# --- Gmail HTML email tests ---
+
+
+def test_view_gmail_html():
+    """Test Gmail-style HTML email renders in browser view."""
+    result = subprocess.run(
+        ["muttlook", "--action", "view"],
+        input=(FIXTURES / "gmail_html.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"muttlook failed: {result.stderr}"
+    outfile = Path.home() / ".cache" / "muttlook" / "view" / "message.html"
+    html = outfile.read_text()
+    assert "Kebnekaise" in html, "Email content missing"
+    assert "gmail_quote" in html or "blockquote" in html, "Quote structure lost"
+
+
+def test_tui_gmail_html():
+    """Test Gmail-style HTML email renders in TUI."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "gmail_html.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"tui failed: {result.stderr}"
+    assert "Kebnekaise" in result.stdout, "Email content not rendered"
+    assert "outdoors" in result.stdout, "Quoted text not rendered"
+    assert "<div" not in result.stdout, "Raw HTML leaked into TUI"
