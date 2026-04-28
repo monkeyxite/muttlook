@@ -1,0 +1,32 @@
+From: Alice Smith <alice.smith@example.com>
+To: Team <team@example.com>
+Subject: MoM: Focus team meeting — w2618.02
+Message-ID: <test-nested-lists@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+## Focus team meeting — w2618.02
+
+**Date**: 2026-04-28
+**Attendees**: Alice, Bob, Charlie
+
+* Component arrangement review
+    **Assessment result: Positive and move on**
+
+    * Option A is preferred as baseline
+        * Shape variants to be decided
+        * Signal integrity needs further check
+    * Positioning
+        - Item 1: OK
+        - Item 2: OK
+        - Next level of details with **analysis**
+            - Options could be alternative approach
+    * Mounting positioning, OK
+        * To adjust follow design guidance
+        - [ ] AP2618.02.01: Run simulation
+
+* Thermal assessment
+    * Even without heatsink, marginal
+        * Further decision after testing
+    * Simulation according to new profile
+        * New input from power consumption

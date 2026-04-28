@@ -250,9 +250,13 @@ def html_escape(text):
 
 def plain2fancy(msg):
     """Format plaintext to outlook-style reply."""
-    # Parse reply content
-    reply = EmailReplyParser(languages=CONFIG["languages"]).read(text=msg)
-    latest_reply = reply.latest_reply or ""
+    # Skip EmailReplyParser for new messages (no quoted lines) — it strips indentation
+    has_quotes = any(line.startswith(">") for line in msg.split("\n"))
+    if has_quotes:
+        reply = EmailReplyParser(languages=CONFIG["languages"]).read(text=msg)
+        latest_reply = reply.latest_reply or ""
+    else:
+        latest_reply = msg
 
     # Convert Obsidian callouts (> [!type] title) to HTML before markdown processing
     def convert_obsidian_callouts(text):
@@ -280,9 +284,11 @@ def plain2fancy(msg):
 
     latest_reply = convert_obsidian_callouts(latest_reply)
 
-    # Ensure blank lines before lists/checklists (markdown requires them)
+    # Ensure blank lines before top-level lists/checklists (markdown requires them)
+    # Only match lines NOT indented (top-level), to preserve nested list structure
     latest_reply = re.sub(r"(\S)\n(- \[[ x]\])", r"\1\n\n\2", latest_reply)
-    latest_reply = re.sub(r"(\S)\n(- )", r"\1\n\n\2", latest_reply)
+    latest_reply = re.sub(r"(\S)\n(\* )", r"\1\n\n\2", latest_reply)
+    latest_reply = re.sub(r"(\S)\n(- (?!\[))", r"\1\n\n\2", latest_reply)
     latest_reply = re.sub(r"(\S)\n(\d+\. )", r"\1\n\n\2", latest_reply)
 
     # Convert Obsidian-style checkboxes to standard markdown before pymdownx
@@ -320,7 +326,7 @@ def plain2fancy(msg):
                 [
                     "pandoc",
                     "-f",
-                    "markdown",
+                    "markdown+lists_without_preceding_blankline+hard_line_breaks",
                     "-t",
                     "html5",
                     "--standalone",
@@ -368,7 +374,7 @@ def plain2fancy(msg):
                     [
                         "pandoc",
                         "-f",
-                        "markdown",
+                        "markdown+lists_without_preceding_blankline+hard_line_breaks",
                         "-t",
                         "html5",
                         "--standalone",
@@ -494,7 +500,7 @@ def view_html(pipe):
         subprocess.run(["xdg-open", str(outfile)])
 
 
-def view_tui(pipe, renderer=None):
+def view_tui(pipe, renderer=None, width=None):
     """View HTML email in terminal with styled ANSI output."""
     if renderer is None:
         renderer = render_html_to_ansi
@@ -511,15 +517,124 @@ def view_tui(pipe, renderer=None):
         print(message.body)
         return
 
-    print(renderer(body_html))
+    print(renderer(body_html, width=width))
 
 
-def render_html_to_ansi(html_text, width=120):
+def _unwrap_layout_tables(html_text):
+    """Replace layout tables with <div>s, keep data tables intact.
+
+    A table is considered a data table if it has: <th> elements, a
+    border attribute (border="1" etc.), or a first row where all cells
+    are bold (common Outlook pattern). Everything else is layout.
+    """
+    from html.parser import HTMLParser
+
+    class _TableFinder(HTMLParser):
+        """Find table boundaries and classify as data vs layout."""
+
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.tables = []  # [(start_offset, end_offset, is_data)]
+            self._stack = []  # [(tag_start_offset, has_th, has_bold_hdr, has_border)]
+            self._raw = ""
+            self._in_first_row = False
+            self._first_row_bold_cells = 0
+            self._first_row_total_cells = 0
+            self._first_row_done = False
+
+        def feed(self, data):
+            self._raw = data
+            super().feed(data)
+
+        def _offset(self):
+            line, col = self.getpos()
+            pos = 0
+            for i, ln in enumerate(self._raw.split("\n"), 1):
+                if i == line:
+                    return pos + col
+                pos += len(ln) + 1
+            return pos
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "table":
+                has_border = any(
+                    k == "border" and v and v != "0" for k, v in attrs
+                )
+                self._stack.append([self._offset(), False, False, has_border])
+                self._in_first_row = False
+                self._first_row_done = False
+                self._first_row_bold_cells = 0
+                self._first_row_total_cells = 0
+            elif tag == "th" and self._stack:
+                self._stack[-1][1] = True
+            elif tag == "tr" and self._stack and not self._first_row_done:
+                self._in_first_row = True
+                self._first_row_bold_cells = 0
+                self._first_row_total_cells = 0
+            elif tag == "td" and self._in_first_row:
+                self._first_row_total_cells += 1
+                # Peek ahead for <b>/<strong> as first child after </td>
+                pos = self._offset()
+                close = self._raw.find(">", pos)
+                if close != -1:
+                    after = self._raw[close + 1:close + 201].lstrip()
+                    if re.match(r"<(?:b|strong)\b", after, re.IGNORECASE):
+                        self._first_row_bold_cells += 1
+
+        def handle_endtag(self, tag):
+            if tag == "tr" and self._in_first_row:
+                self._in_first_row = False
+                self._first_row_done = True
+                if self._first_row_total_cells >= 2 and self._first_row_bold_cells == self._first_row_total_cells:
+                    if self._stack:
+                        self._stack[-1][2] = True
+            elif tag == "table" and self._stack:
+                start, has_th, has_bold_hdr, has_border = self._stack.pop()
+                end = self._raw.find(">", self._offset())
+                if end == -1:
+                    end = self._offset()
+                else:
+                    end += 1
+                self.tables.append((start, end, has_th or has_bold_hdr or has_border))
+
+    parser = _TableFinder()
+    try:
+        parser.feed(html_text)
+    except Exception:
+        return html_text
+
+    if not parser.tables:
+        return html_text
+
+    # Process from end to start to preserve offsets
+    for start, end, is_data in reversed(sorted(parser.tables, key=lambda t: t[0])):
+        if is_data:
+            continue
+        table_html = html_text[start:end]
+        unwrapped = re.sub(
+            r"</?(?:table|tbody|thead|tfoot|tr)\b[^>]*>", "", table_html, flags=re.IGNORECASE
+        )
+        unwrapped = re.sub(r"<td\b[^>]*>", "<div>", unwrapped, flags=re.IGNORECASE)
+        unwrapped = re.sub(r"</td>", "</div>", unwrapped, flags=re.IGNORECASE)
+        html_text = html_text[:start] + unwrapped + html_text[end:]
+
+    return html_text
+
+
+def render_html_to_ansi(html_text, width=None):
     """Render HTML to styled ANSI terminal text (default: html2text --colour pipeline).
 
-    Pipeline: Outlook preprocess → html2text --colour → ANSI remap → header dim → Teams strip
+    Pipeline: Outlook preprocess → layout table unwrap → html2text --colour → ANSI remap → header dim → Teams strip
+
+    Args:
+        width: Output width in columns. Auto-detected from terminal if None.
+               Callers should pass explicit width when terminal detection is
+               unreliable (e.g. neomutt mailcap, fzf preview).
     """
     import shutil
+
+    if width is None:
+        width = shutil.get_terminal_size((120, 24)).columns
 
     # Phase 1: Outlook MsoNormal preprocessing
     html_text = re.sub(r"<o:p></o:p>", "", html_text)
@@ -529,6 +644,9 @@ def render_html_to_ansi(html_text, width=120):
         html_text,
     )
     html_text = re.sub(r'</p>\s*<p\s+class="MsoNormal"[^>]*>', " ", html_text)
+
+    # Phase 1.5: Unwrap layout tables (keep data tables)
+    html_text = _unwrap_layout_tables(html_text)
 
     # Phase 2: html2text --colour (Rust binary)
     h2t = shutil.which("html2text", path=os.path.expanduser("~/.local/share/cargo/bin"))
@@ -545,42 +663,20 @@ def render_html_to_ansi(html_text, width=120):
     )
     text = result.stdout
 
-    # Phase 3: ANSI remap + header dimming + cleanup
-    lines = text.split("\n")
-    out = []
-    in_hdr = False
-    prev_blank = False
+    # Phase 3: ANSI remap + shared cleanup
+    from .mutt_trim import classify_header_block
 
+    lines = text.split("\n")
+    # Remap bold yellow → purple, markdown headers → bold blue/cyan
+    remapped = []
     for line in lines:
-        line = re.sub(r"\[cid:[^\]]*\]", "", line)
-        stripped = re.sub(r"\x1b\[[^m]*m", "", line)
-        if re.match(r"^(From|Sent|To|Cc|Subject|When|Where|Importance|Date):", stripped):
-            in_hdr = True
-        elif in_hdr and stripped.strip() == "":
-            in_hdr = False
-        # Remap bold yellow → purple
         line = line.replace("\x1b[38;5;11m", "\x1b[35m")
-        if in_hdr:
-            line = re.sub(r"\x1b\[[^m]*m", "", line)
-            line = f"\x1b[90m{line}\x1b[0m"
-        if re.match(r"^-{3,}\s*(Original|Forwarded)", stripped):
-            line = re.sub(r"\x1b\[[^m]*m", "", line)
-            line = f"\x1b[90m{line}\x1b[0m"
-        # Markdown headers → bold blue/cyan
         line = re.sub(r"^### (.*)$", "\x1b[1;36m\\1\x1b[0m", line)
         line = re.sub(r"^## (.*)$", "\x1b[1;36m\\1\x1b[0m", line)
         line = re.sub(r"^# (.*)$", "\x1b[1;34m\\1\x1b[0m", line)
-        # Teams boilerplate
-        if re.match(r"_{10,}", line):
-            continue
-        if re.search(r"Microsoft Teams meeting|Meeting ID:", line):
-            continue
-        is_blank = line.strip() == ""
-        if is_blank and prev_blank:
-            continue
-        prev_blank = is_blank
-        out.append(line)
+        remapped.append(line)
 
+    out = classify_header_block(remapped)
     return "\n".join(out)
 
 
@@ -614,26 +710,11 @@ def render_html_rich(html_text, width=120):
 
     result = subprocess.run([h2t, "-w", str(width)], input=html_text, capture_output=True, text=True)
     md_text = result.stdout
-    md_text = re.sub(r"\[cid:[^\]]*\]", "", md_text)
-    md_text = re.sub(r"_{10,}\n", "", md_text)
-    md_text = re.sub(r"Microsoft Teams meeting\n.*?Meeting ID:[^\n]*\n", "", md_text, flags=re.DOTALL)
+
+    from .mutt_trim import classify_header_block
 
     lines = md_text.split("\n")
-    processed = []
-    in_hdr = False
-    for line in lines:
-        stripped = line.replace("**", "")
-        if re.match(r"^(From|Sent|To|Cc|Subject|When|Where|Importance|Date):", stripped):
-            in_hdr = True
-        elif in_hdr and stripped.strip() == "":
-            in_hdr = False
-        if in_hdr:
-            line = line.replace("**", "")
-            processed.append(f"\x1b[90m{line}\x1b[0m")
-        elif re.match(r"^-{3,}\s*(Original|Forwarded)", line):
-            processed.append(f"\x1b[90m{line}\x1b[0m")
-        else:
-            processed.append(line)
+    processed = classify_header_block(lines)
 
     buf = StringIO()
     tn_theme = Theme({
@@ -703,8 +784,9 @@ def send_hook_cleaner(path):
     help="Specify the action to perform.",
     required=True,
 )
+@click.option("--width", "-w", type=int, default=None, help="Output width in columns (auto-detect if omitted).")
 @click.argument("file", required=False, type=click.Path(exists=True))
-def main(action, file):
+def main(action, width, file):
     """Main function with click interface."""
     if action == "clean":
         send_hook_cleaner(str(TEMP_DIR))
@@ -723,9 +805,9 @@ def main(action, file):
                 html_text = raw.decode(charset)
             except (UnicodeDecodeError, LookupError):
                 html_text = raw.decode("utf-8", errors="replace")
-            print(renderer(html_text))
+            print(renderer(html_text, width=width))
         else:
-            view_tui(sys.stdin.read(), renderer=renderer)
+            view_tui(sys.stdin.read(), renderer=renderer, width=width)
 
 
 if __name__ == "__main__":

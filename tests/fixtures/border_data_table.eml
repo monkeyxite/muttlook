@@ -1,0 +1,21 @@
+From: Max Lindgren <max.lindgren@example.com>
+To: team@example.com
+Subject: Project Alpha status report w17
+Message-ID: <border-data-table@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<p>Hello, here is the status report for w17:</p>
+<table cellspacing="0" cellpadding="0" border="1" style="border-collapse:collapse">
+<tbody>
+<tr><td></td><td>Alpha</td></tr>
+<tr><td>SP</td><td>SSI</td><td>SSV</td><td>Overall</td></tr>
+<tr><td>SP2</td><td>100%</td><td>100%</td><td>100%</td></tr>
+<tr><td>SP3</td><td>100%</td><td>99%</td><td>99%</td></tr>
+<tr><td>SP7</td><td>/</td><td>100%</td><td>100%</td></tr>
+<tr><td>Total</td><td>100%</td><td>99%</td><td>99%</td></tr>
+</tbody>
+</table>
+<p>Best regards,<br>Max</p>
+</body></html>

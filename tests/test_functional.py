@@ -362,3 +362,230 @@ def test_tui_gmail_html():
     assert "Kebnekaise" in result.stdout, "Email content not rendered"
     assert "outdoors" in result.stdout, "Quoted text not rendered"
     assert "<div" not in result.stdout, "Raw HTML leaked into TUI"
+
+
+def test_tui_newsletter_layout_tables_unwrapped():
+    """Test that nested layout tables in newsletters render as clean text."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "newsletter_layout_tables.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"tui failed: {result.stderr}"
+    plain = _strip_ansi(result.stdout)
+    assert "Rotary Tiller" in plain, "Product name missing"
+    assert "$899" in plain, "Price missing"
+    assert "Cultivator A" in plain, "Second section missing"
+    # Should NOT have excessive box-drawing from layout tables
+    box_chars = sum(1 for c in plain if c in "─│┬┴┼┤├┐┘┌└")
+    assert box_chars < 10, f"Too many box-drawing chars ({box_chars}) — layout tables not unwrapped"
+
+
+def test_tui_border_data_table_preserved():
+    """Test that table with border attribute is kept as data table."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "border_data_table.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"tui failed: {result.stderr}"
+    plain = _strip_ansi(result.stdout)
+    assert "SSI" in plain, "Header cell missing"
+    assert "100%" in plain, "Data cell missing"
+    box_chars = sum(1 for c in plain if c in "─│┬┴┼┤├┐┘┌└")
+    assert box_chars > 10, f"Data table grid missing ({box_chars} box chars)"
+
+
+def test_view_border_data_table_preserved():
+    """Test that border data table is preserved in browser view."""
+    result = subprocess.run(
+        ["muttlook", "--action", "view"],
+        input=(FIXTURES / "border_data_table.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"muttlook failed: {result.stderr}"
+    outfile = Path.home() / ".cache" / "muttlook" / "view" / "message.html"
+    html = outfile.read_text()
+    assert "<table" in html, "Data table stripped from view"
+    assert "SSI" in html, "Table content missing"
+
+
+# --- Shared cleanup (classify_header_block) tests for TUI view ---
+
+
+def test_tui_view_cleanup_cid_stripped():
+    """TUI view: [cid:...] references are removed."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "trim_filters.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "[cid:" not in result.stdout, "CID reference not stripped"
+
+
+def test_tui_view_cleanup_headers_dimmed():
+    """TUI view: forwarded From/Sent/To/Subject block is dimmed (ANSI 90)."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "trim_filters.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "\x1b[90m" in result.stdout, "Forwarded headers not dimmed"
+    # The dimmed block should contain From/Sent
+    dimmed = [l for l in result.stdout.split("\n") if "\x1b[90m" in l]
+    dimmed_text = " ".join(dimmed)
+    assert "From:" in dimmed_text or "Sent:" in dimmed_text, "Header block not in dimmed lines"
+
+
+def test_tui_view_cleanup_teams_stripped():
+    """TUI view: Teams boilerplate (underscores + meeting info) is removed."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "trim_filters.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "Microsoft Teams meeting" not in result.stdout, "Teams boilerplate not stripped"
+    assert "Meeting ID:" not in result.stdout, "Meeting ID not stripped"
+
+
+def test_tui_view_cleanup_blanks_squeezed():
+    """TUI view: consecutive blank lines are squeezed to one."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "trim_filters.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "\n\n\n" not in result.stdout, "Triple blank lines not squeezed"
+
+
+def test_tui_view_keeps_greetings():
+    """TUI view: greetings and signoffs are NOT stripped (useful context when reading)."""
+    result = subprocess.run(
+        ["muttlook", "--action", "tui"],
+        input=(FIXTURES / "trim_filters.eml").read_text(),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    plain = _strip_ansi(result.stdout)
+    assert "Best regards" in plain, "Signoff should be kept in view"
+    assert "option B" in plain, "Email body missing"
+
+
+# --- Reply trim (trim_mail) tests ---
+
+
+def test_reply_trim_strips_greetings():
+    """Reply trim: greetings (Dear X, Hi X) are removed from quoted text."""
+    from muttlook.mutt_trim import trim_mail
+    lines = [
+        "> Dear Anna,\n",
+        "> \n",
+        "> Can we sync on the project?\n",
+        "> \n",
+        "> Cheers,\n",
+        "> \n",
+        "> Erik\n",
+    ]
+    result = trim_mail(lines)
+    text = "".join(result)
+    assert "Dear Anna" not in text, "Greeting not stripped"
+    assert "Cheers" not in text, "Signoff not stripped"
+    assert "sync on the project" in text, "Body content stripped"
+
+
+def test_reply_trim_strips_signatures():
+    """Reply trim: quoted signatures (-- ) are removed."""
+    from muttlook.mutt_trim import trim_mail
+    lines = [
+        "> Thanks!\n",
+        "> \n",
+        "> -- \n",
+        "> Erik Lund | Senior Engineer\n",
+        "> Phone: +46 70 123 4567\n",
+    ]
+    result = trim_mail(lines)
+    text = "".join(result)
+    assert "Thanks" in text, "Body before sig stripped"
+    assert "Senior Engineer" not in text, "Signature not stripped"
+    assert "Phone:" not in text, "Signature phone not stripped"
+
+
+def test_reply_trim_strips_filler():
+    """Reply trim: quoted filler lines (---, ===, ___) are removed."""
+    from muttlook.mutt_trim import trim_mail
+    lines = [
+        "> Some content\n",
+        "> ________________________________\n",
+        "> More content\n",
+    ]
+    result = trim_mail(lines)
+    text = "".join(result)
+    assert "Some content" in text
+    assert "More content" in text
+    assert "____" not in text, "Filler line not stripped"
+
+
+def test_reply_trim_limits_quote_depth():
+    """Reply trim: quotes deeper than IND_MAX (5) are removed."""
+    from muttlook.mutt_trim import trim_mail
+    lines = [
+        "> level 1\n",
+        ">> level 2\n",
+        ">>> level 3\n",
+        ">>>> level 4\n",
+        ">>>>> level 5\n",
+        ">>>>>> level 6 should be gone\n",
+    ]
+    result = trim_mail(lines)
+    text = "".join(result)
+    assert "level 5" in text
+    assert "level 6" not in text, "Deep quote not stripped"
+
+
+def test_nested_lists_preserved():
+    """Test that nested markdown lists produce nested <ul> in HTML."""
+    fixture = FIXTURES / "nested_lists.eml"
+    result = subprocess.run(
+        ["muttlook", "--action", "draft"],
+        input=fixture.read_text(),
+        capture_output=True,
+        text=True,
+    )
+    html_file = Path.home() / ".cache" / "muttlook" / "mimelook.html"
+    assert html_file.exists(), "HTML output not generated"
+    html = html_file.read_text()
+    # Nested lists must produce multiple <ul> levels, not flat
+    ul_count = html.count("<ul>") + html.count("<ul ")
+    assert ul_count >= 3, f"Expected >=3 nested <ul> levels, got {ul_count}. Lists are flat!"
+
+
+def test_line_breaks_preserved():
+    """Test that consecutive lines (Date/Attendees) don't merge into one paragraph."""
+    fixture = FIXTURES / "nested_lists.eml"
+    result = subprocess.run(
+        ["muttlook", "--action", "draft"],
+        input=fixture.read_text(),
+        capture_output=True,
+        text=True,
+    )
+    html_file = Path.home() / ".cache" / "muttlook" / "mimelook.html"
+    assert html_file.exists(), "HTML output not generated"
+    html = html_file.read_text()
+    # Date and Attendees must be on separate lines (br or separate elements)
+    assert "2026-04-28" in html, "Date missing"
+    assert "Alice, Bob, Charlie" in html, "Attendees missing"
+    # They must NOT be joined in a single run of text
+    assert "2026-04-28 Attendees" not in html and "2026-04-28Attendees" not in html, \
+        "Date and Attendees merged into one line — hard_line_breaks not working"

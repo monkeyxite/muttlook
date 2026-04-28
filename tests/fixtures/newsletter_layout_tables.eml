@@ -1,0 +1,29 @@
+From: deals@shop.example.com
+To: user@gmail.com
+Subject: Picks for you
+Message-ID: <layout-tables@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<table bgcolor="#F4F4F4" cellpadding="0" cellspacing="0" border="0" align="center" style="width:100%"><tbody><tr><td>
+<table width="600" cellpadding="0" cellspacing="0" border="0" align="center"><tbody>
+<tr><td align="center"><h2>Picked from products viewed</h2></td></tr>
+<tr><td><table width="600" cellpadding="0" cellspacing="0" border="0"><tbody>
+<tr>
+<td width="200" align="center" valign="top"><img src="https://example.com/img1.jpg" width="180"><br>Rotary Tiller<br><strong>$899</strong></td>
+<td width="200" align="center" valign="top"><img src="https://example.com/img2.jpg" width="180"><br>Micro Tiller<br><strong>$699</strong></td>
+<td width="200" align="center" valign="top"><img src="https://example.com/img3.jpg" width="180"><br>Trenching Tiller<br><strong>$699</strong></td>
+</tr>
+</tbody></table></td></tr>
+<tr><td align="center"><a href="https://example.com/more">View more</a></td></tr>
+<tr><td><table width="600" cellpadding="0" cellspacing="0" border="0"><tbody>
+<tr><td colspan="3"><h3>Similar items for you</h3></td></tr>
+<tr>
+<td width="200" align="center"><img src="https://example.com/img4.jpg" width="180"><br>Cultivator A<br><strong>$600</strong></td>
+<td width="200" align="center"><img src="https://example.com/img5.jpg" width="180"><br>Cultivator B<br><strong>$499</strong></td>
+<td width="200" align="center"><img src="https://example.com/img6.jpg" width="180"><br>Cultivator C<br><strong>$580</strong></td>
+</tr>
+</tbody></table></td></tr>
+<tr><td align="center" style="font-size:11px">Pause emails | Unsubscribe</td></tr>
+</tbody></table>
+</td></tr></tbody></table>

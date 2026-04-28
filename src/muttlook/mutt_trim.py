@@ -40,6 +40,121 @@ GREETOUTS = [
 ]
 
 
+# ── Shared cleanup (used by both reply trim and TUI view) ──
+
+_ANSI_RE = re.compile(r"\x1b\[[^m]*m")
+_CID_RE = re.compile(r"\[cid:[^\]]*\]")
+_HEADER_RE = re.compile(r"^(From|Sent|To|Cc|Subject|When|Where|Importance|Date):")
+_FWD_SEP_RE = re.compile(r"^-{3,}\s*(Original|Forwarded)")
+_FILLER_RE = re.compile(r"^_{10,}$")
+_TEAMS_RE = re.compile(r"Microsoft Teams meeting|Meeting ID:")
+_GREETING_RE = re.compile(
+    r"^(" + "|".join(GREETINGS) + r")\s*$"
+)
+_GREETOUT_RE = re.compile(
+    r"^(" + "|".join(GREETOUTS) + r")\s*$"
+)
+
+
+def strip_cid(line):
+    """Remove [cid:...] image references."""
+    return _CID_RE.sub("", line)
+
+
+def strip_ansi(text):
+    """Remove ANSI escape codes."""
+    return _ANSI_RE.sub("", text)
+
+
+def is_filler(line):
+    """Check if line is a filler/separator (underscores, Teams boilerplate)."""
+    stripped = strip_ansi(line).strip()
+    return bool(_FILLER_RE.match(stripped) or _TEAMS_RE.search(stripped))
+
+
+def is_greeting(line):
+    """Check if line is a standalone greeting (Dear X, Hi X, Hallo X, etc.).
+
+    Only matches lines that are purely a greeting — not sentences that
+    happen to start with a greeting word.
+    """
+    stripped = strip_ansi(line).strip()
+    # Must be short (greetings are typically < 60 chars) and match fully
+    if len(stripped) > 60:
+        return False
+    return bool(_GREETING_RE.match(stripped))
+
+
+def is_signoff(line):
+    """Check if line is a signoff (Best regards, Cheers, MFG, etc.)."""
+    stripped = strip_ansi(line).strip()
+    return bool(_GREETOUT_RE.match(stripped))
+
+
+def dim_line(line, width=None):
+    """Wrap line in dim ANSI (grey), pre-wrapping long lines.
+
+    Neomutt's pager resets ANSI codes at wrap points, so we pre-wrap
+    dimmed lines and apply dim to each sub-line individually.
+    """
+    import shutil
+    import textwrap
+
+    if width is None:
+        width = shutil.get_terminal_size((120, 24)).columns
+    plain = strip_ansi(line)
+    if len(plain) <= width:
+        return f"\x1b[90m{plain}\x1b[0m"
+    wrapped = textwrap.wrap(plain, width=width, break_on_hyphens=False)
+    return "\n".join(f"\x1b[90m{sub}\x1b[0m" for sub in wrapped)
+
+
+def classify_header_block(lines):
+    """Process lines: dim forwarded header blocks, strip CID, remove filler.
+
+    Returns cleaned lines with:
+    - CID references removed
+    - Forwarded headers (From/Sent/To/Subject blocks) dimmed
+    - Forwarded separators dimmed
+    - Filler/Teams boilerplate removed
+    - Consecutive blank lines squeezed
+    - Greetings/signoffs stripped from non-quoted text
+    """
+    out = []
+    in_hdr = False
+    prev_blank = False
+
+    for line in lines:
+        line = strip_cid(line)
+        stripped = strip_ansi(line)
+
+        # Forwarded header block detection
+        if _HEADER_RE.match(stripped):
+            in_hdr = True
+        elif in_hdr and stripped.strip() == "":
+            in_hdr = False
+
+        # Filler / Teams boilerplate
+        if is_filler(line):
+            continue
+
+        # Dim forwarded headers
+        if in_hdr:
+            line = dim_line(line)
+        elif _FWD_SEP_RE.match(stripped):
+            line = dim_line(line)
+
+        # Squeeze blanks
+        is_blank = stripped.strip() == ""
+        if is_blank and prev_blank:
+            continue
+        prev_blank = is_blank
+
+        out.append(line)
+
+    return out
+
+
 def trim_mail(mail_lines):
     """Trim quoted mail content similar to Perl mutt-trim."""
     purged_mail = []

@@ -10,3 +10,4 @@ build/
 *_ltex.json
 .ipynb_checkpoints/
 .pytest_cache/
+uv.lock
