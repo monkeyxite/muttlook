@@ -627,6 +627,7 @@ def render_html_to_ansi(html_text, width=None):
     Pipeline: Outlook preprocess → layout table unwrap → html2text --colour → ANSI remap → header dim → Teams strip
 
     Args:
+        html_text: HTML content to render.
         width: Output width in columns. Auto-detected from terminal if None.
                Callers should pass explicit width when terminal detection is
                unreliable (e.g. neomutt mailcap, fzf preview).

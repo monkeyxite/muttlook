@@ -557,7 +557,7 @@ def test_reply_trim_limits_quote_depth():
 def test_nested_lists_preserved():
     """Test that nested markdown lists produce nested <ul> in HTML."""
     fixture = FIXTURES / "nested_lists.eml"
-    result = subprocess.run(
+    subprocess.run(
         ["muttlook", "--action", "draft"],
         input=fixture.read_text(),
         capture_output=True,
@@ -574,7 +574,7 @@ def test_nested_lists_preserved():
 def test_line_breaks_preserved():
     """Test that consecutive lines (Date/Attendees) don't merge into one paragraph."""
     fixture = FIXTURES / "nested_lists.eml"
-    result = subprocess.run(
+    subprocess.run(
         ["muttlook", "--action", "draft"],
         input=fixture.read_text(),
         capture_output=True,
