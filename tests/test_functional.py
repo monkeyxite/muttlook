@@ -83,6 +83,42 @@ def test_new_message_no_reply_headers():
     assert result.returncode == 0, f"muttlook failed: {result.stderr}"
 
 
+def test_inline_image_cid_with_spaces():
+    """Test that images with spaces in path get correct CID in HTML."""
+    import tempfile
+    import shutil
+
+    # Create a temp image file with spaces in name
+    img_path = Path("/tmp/muttlook_test_image with spaces.png")
+    img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)  # minimal PNG header
+
+    try:
+        result = subprocess.run(
+            ["muttlook", "--action", "draft"],
+            input=(FIXTURES / "new_message_with_image.eml").read_text(),
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"muttlook failed: {result.stderr}"
+
+        html_file = Path.home() / ".cache" / "muttlook" / "mimelook.html"
+        assert html_file.exists(), "HTML output not generated"
+        html = html_file.read_text()
+
+        # HTML must have cid: reference, NOT the raw file path
+        assert "cid:" in html, "CID reference missing from HTML"
+        assert "/tmp/muttlook_test_image" not in html, "Raw path still in HTML (URL-encode fix failed)"
+        assert "%20" not in html, "URL-encoded path still in HTML"
+
+        # mutt_cmd must have group-related for inline image
+        cmd_file = Path.home() / ".cache" / "muttlook" / "mutt_cmd"
+        cmd = cmd_file.read_text()
+        assert "group-related" in cmd, "mutt_cmd missing group-related"
+        assert "edit-content-id" in cmd, "mutt_cmd missing content-id setup"
+    finally:
+        img_path.unlink(missing_ok=True)
+
+
 def test_reply_notmuch_missing_fallback():
     """Test that reply with unresolvable In-Reply-To falls back gracefully."""
     result = subprocess.run(

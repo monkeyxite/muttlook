@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import click
 
@@ -412,6 +413,8 @@ def plain2fancy(msg):
             # Replace in markdown and HTML
             new_reply = new_reply.replace(link, f"cid:{cid}")
             madness = madness.replace(link, f"cid:{cid}")
+            # Also replace URL-encoded version (pandoc encodes spaces as %20)
+            madness = madness.replace(quote(link, safe="/:"), f"cid:{cid}")
 
         except Exception as e:
             logging.error(f"Error copying file: {e}")

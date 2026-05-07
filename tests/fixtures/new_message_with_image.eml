@@ -1,0 +1,12 @@
+From: Kai Tanaka <kai.tanaka@example.com>
+To: Bob <bob@example.com>
+Subject: Report with screenshot
+Message-ID: <img001@example.com>
+
+# Status Report
+
+See the screenshot below:
+
+![screenshot](/tmp/muttlook_test_image with spaces.png)
+
+Done.
