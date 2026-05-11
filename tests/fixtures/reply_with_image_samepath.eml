@@ -1,0 +1,11 @@
+From: Jonny Hou <jonny.hou@ericsson.com>
+To: test@example.com
+Subject: Re: Test with image
+Message-ID: <test-samepath@example.com>
+
+# test
+
+![paste_test.png](/Users/ehoujin/.cache/muttlook/paste_test.png)
+
+> On Mon 11 May, Someone wrote:
+> original message

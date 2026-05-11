@@ -101,7 +101,7 @@ def export_inline_attachments(message, dstdir):
             content = base64.decodebytes(attachment["payload"].encode("ascii"))
             dstfile.write_bytes(content)
 
-            att = (f"{attachment_name}@{attachment_id}", str(dstfile))
+            att = (attachment_id, str(dstfile))
             if att not in ret:
                 ret.append(att)
         except Exception as e:
@@ -251,6 +251,14 @@ def html_escape(text):
 
 def plain2fancy(msg):
     """Format plaintext to outlook-style reply."""
+    # Clean stale image files from previous runs (prevents filename overflow)
+    for f in TEMP_DIR.glob("*.png"):
+        if f.name.startswith("paste_"):
+            continue  # keep user-pasted images
+        f.unlink(missing_ok=True)
+    for f in TEMP_DIR.glob("*.jpg"):
+        f.unlink(missing_ok=True)
+
     # Skip EmailReplyParser for new messages (no quoted lines) — it strips indentation
     has_quotes = any(line.startswith(">") for line in msg.split("\n"))
     if has_quotes:
@@ -403,7 +411,10 @@ def plain2fancy(msg):
         destination_path = TEMP_DIR / filename
 
         try:
-            shutil.copy(link, destination_path)
+            src = Path(link).resolve()
+            dst = destination_path.resolve()
+            if src != dst:
+                shutil.copy(link, destination_path)
             logging.info(f"File copied to: {destination_path}")
 
             # Generate CID in Outlook style

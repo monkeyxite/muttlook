@@ -625,3 +625,39 @@ def test_line_breaks_preserved():
     # They must NOT be joined in a single run of text
     assert "2026-04-28 Attendees" not in html and "2026-04-28Attendees" not in html, \
         "Date and Attendees merged into one line — hard_line_breaks not working"
+
+
+def test_inline_image_same_path_as_tempdir():
+    """Test that images already in muttlook cache dir get CID correctly."""
+    from pathlib import Path
+
+    # Create image in the same dir muttlook uses (simulates mail ftplugin paste)
+    cache_dir = Path.home() / ".cache" / "muttlook"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    img_path = cache_dir / "paste_test.png"
+    img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+
+    try:
+        result = subprocess.run(
+            ["muttlook", "--action", "draft"],
+            input=(FIXTURES / "reply_with_image_samepath.eml").read_text(),
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"muttlook failed: {result.stderr}"
+
+        html_file = Path.home() / ".cache" / "muttlook" / "mimelook.html"
+        assert html_file.exists(), "HTML output not generated"
+        html = html_file.read_text()
+
+        # HTML must have cid: reference, NOT the raw file path
+        assert "cid:" in html, "CID reference missing from HTML"
+        assert "/Users/ehoujin/.cache/muttlook/paste_test.png" not in html, "Raw path still in HTML"
+
+        # mutt_cmd must have group-related
+        cmd_file = Path.home() / ".cache" / "muttlook" / "mutt_cmd"
+        cmd = cmd_file.read_text()
+        assert "group-related" in cmd, "mutt_cmd missing group-related"
+        assert "edit-content-id" in cmd, "mutt_cmd missing content-id setup"
+    finally:
+        img_path.unlink(missing_ok=True)
