@@ -29,8 +29,11 @@ jobs:
       - name: Cache cargo
         uses: actions/cache@v4
         with:
-          path: ~/.cargo
-          key: ${{ runner.os }}-cargo-html2text-cli
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/html2text
+          key: ${{ runner.os }}-cargo-html2text-cli-v2
 
       - name: Install html2text CLI (Rust)
         run: cargo install html2text-cli
