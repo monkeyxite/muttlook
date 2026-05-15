@@ -638,9 +638,14 @@ def test_inline_image_same_path_as_tempdir():
     img_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
 
     try:
+        # Replace hardcoded path in fixture with actual home dir
+        fixture_text = (FIXTURES / "reply_with_image_samepath.eml").read_text()
+        fixture_text = fixture_text.replace(
+            "/Users/ehoujin/.cache/muttlook", str(cache_dir)
+        )
         result = subprocess.run(
             ["muttlook", "--action", "draft"],
-            input=(FIXTURES / "reply_with_image_samepath.eml").read_text(),
+            input=fixture_text,
             capture_output=True,
             text=True,
         )
@@ -652,7 +657,7 @@ def test_inline_image_same_path_as_tempdir():
 
         # HTML must have cid: reference, NOT the raw file path
         assert "cid:" in html, "CID reference missing from HTML"
-        assert "/Users/ehoujin/.cache/muttlook/paste_test.png" not in html, "Raw path still in HTML"
+        assert str(img_path) not in html, "Raw path still in HTML"
 
         # mutt_cmd must have group-related
         cmd_file = Path.home() / ".cache" / "muttlook" / "mutt_cmd"
