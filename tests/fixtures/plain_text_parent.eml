@@ -1,0 +1,20 @@
+From: sender@gmail.com
+To: recipient@example.com
+Subject: Plain text parent
+Date: Thu, 1 May 2026 10:00:00 +0200
+Message-ID: <plain-text-parent@gmail.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="boundary123"
+
+--boundary123
+Content-Type: text/plain; charset="UTF-8"
+
+Hi, this is a plain text email from Gmail.
+
+Best,
+Sender
+--boundary123
+Content-Type: text/html; charset="UTF-8"
+
+<div dir="auto">Hi, this is a plain text email from Gmail.<div dir="auto"><br></div><div dir="auto">Best,</div><div dir="auto">Sender</div></div>
+--boundary123--

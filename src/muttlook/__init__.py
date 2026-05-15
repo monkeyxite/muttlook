@@ -197,7 +197,9 @@ def format_outlook_reply(message, htmltoinsert):
     # Find body tag and insert reply
     body_match = re.search(r"<body.*?>", message_html)
     if not body_match:
-        raise ValueError("No body tag found in parent HTML")
+        # No body tag (e.g. Gmail plain div fragments) — wrap in minimal HTML
+        message_html = f"<html><body>{message_html}</body></html>"
+        body_match = re.search(r"<body.*?>", message_html)
 
     return f"{message_html[:body_match.end()]}\n{htmltoinsert}\n{outlook_header}\n{message_html[body_match.end():]}"
 

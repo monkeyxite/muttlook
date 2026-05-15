@@ -205,3 +205,34 @@ def test_mutt_trim_preserves_body_content_with_marker():
     # Marker at end, after body
     lines = result.strip().split("\n")
     assert lines[-1].startswith("[//]: # (muttlook-")
+
+
+def test_plain_text_parent_joins_thread():
+    """Gmail plain-text parent (no <body> tag, just <div>) should still join thread."""
+    from muttlook import format_outlook_reply
+    import mailparser
+
+    parent = mailparser.parse_from_file(str(FIXTURES / "plain_text_parent.eml"))
+    reply_html = "<p>My reply</p>"
+
+    # Should NOT raise "No body tag found in parent HTML"
+    result = format_outlook_reply(parent, reply_html)
+    assert "My reply" in result
+    assert "plain text email from Gmail" in result
+    assert "<body>" in result.lower() or "<body" in result.lower()
+
+
+def test_plain_text_parent_via_draft_pipeline():
+    """Gmail div-only HTML (no <body> tag) is wrapped and joined correctly."""
+    import mailparser
+    from muttlook import format_outlook_reply
+
+    parent = mailparser.parse_from_file(str(FIXTURES / "plain_text_parent.eml"))
+    reply_html = "<p>My reply to plain text</p>"
+
+    result = format_outlook_reply(parent, reply_html)
+    # Should contain both reply and original content
+    assert "My reply to plain text" in result
+    assert "plain text email from Gmail" in result
+    # Should have proper HTML structure
+    assert "<body>" in result.lower() or "<body" in result.lower()

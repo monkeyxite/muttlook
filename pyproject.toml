@@ -88,3 +88,8 @@ target-version = "py310"
 
 [tool.ruff.pydocstyle]
 convention = "google"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
