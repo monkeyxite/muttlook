@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/monkeyxite/muttlook/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
-  <a href="https://github.com/monkeyxite/muttlook/actions"><img src="https://img.shields.io/badge/tests-58%20passed-brightgreen?logo=pytest&logoColor=white" alt="Tests"></a>
+  <a href="https://github.com/monkeyxite/muttlook/actions/workflows/ci.yml"><img src="https://github.com/monkeyxite/muttlook/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-%E2%89%A53.8-3776ab?logo=python&logoColor=white" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/neomutt-20260504-green?logo=thunderbird&logoColor=white" alt="NeoMutt">
   <img src="https://img.shields.io/badge/notmuch-0.40-orange" alt="Notmuch 0.40">
