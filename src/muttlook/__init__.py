@@ -261,7 +261,7 @@ def plain2fancy(msg):
 
     # Extract hidden reply metadata markers (embedded by mutt-trim)
     marker_reply_to = None
-    marker_references = None
+    _marker_references = None
     marker_re = re.compile(r'^\[//\]: # \(muttlook-(reply-to|references):(.+)\)$')
     clean_lines = []
     for line in msg.split("\n"):
@@ -270,7 +270,7 @@ def plain2fancy(msg):
             if m.group(1) == "reply-to":
                 marker_reply_to = m.group(2).strip().strip("<>")
             else:
-                marker_references = m.group(2).strip()
+                _marker_references = m.group(2).strip()
         else:
             clean_lines.append(line)
     # Remove trailing blank lines left by marker stripping
