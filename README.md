@@ -1,6 +1,20 @@
-# Muttlook
+<p align="center">
+  <img src="banner.png" alt="muttlook" width="800">
+</p>
 
-A unified Python tool for reading, replying, and composing HTML emails in mutt/neomutt. Handles Outlook/OWA emails with Markdown composition, terminal rendering, and browser viewing.
+<p align="center">
+  <a href="https://github.com/monkeyxite/muttlook/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://github.com/monkeyxite/muttlook/actions"><img src="https://img.shields.io/badge/tests-58%20passed-brightgreen?logo=pytest&logoColor=white" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/python-%E2%89%A53.8-3776ab?logo=python&logoColor=white" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/neomutt-20260504-green?logo=thunderbird&logoColor=white" alt="NeoMutt">
+  <img src="https://img.shields.io/badge/notmuch-0.40-orange" alt="Notmuch 0.40">
+  <img src="https://img.shields.io/badge/pandoc-required-lightgrey?logo=markdown" alt="Pandoc">
+</p>
+
+<p align="center">
+  A unified Python tool for reading, replying, and composing HTML emails in mutt/neomutt.<br>
+  Handles Outlook/OWA emails with Markdown composition, terminal rendering, and browser viewing.
+</p>
 
 ## Features
 
