@@ -372,17 +372,19 @@ def plain2fancy(msg):
     if not reply_to_id:
         # New message - use pandoc template
         try:
+            pandoc_cmd = [
+                "pandoc",
+                "-f",
+                "markdown+lists_without_preceding_blankline+hard_line_breaks",
+                "-t",
+                "html5",
+                "--standalone",
+            ]
+            template = Path(CONFIG["template"]).expanduser()
+            if template.exists():
+                pandoc_cmd += ["--template", str(template)]
             result = subprocess.run(
-                [
-                    "pandoc",
-                    "-f",
-                    "markdown+lists_without_preceding_blankline+hard_line_breaks",
-                    "-t",
-                    "html5",
-                    "--standalone",
-                    "--template",
-                    CONFIG["template"],
-                ],
+                pandoc_cmd,
                 input=latest_reply,
                 capture_output=True,
                 text=True,
