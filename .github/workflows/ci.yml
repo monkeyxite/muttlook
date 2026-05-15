@@ -36,7 +36,7 @@ jobs:
           key: ${{ runner.os }}-cargo-html2text-cli-v2
 
       - name: Install html2text CLI (Rust)
-        run: cargo install html2text-cli
+        run: which html2text || cargo install html2text-cli
 
       - name: Install notmuch
         run: |
