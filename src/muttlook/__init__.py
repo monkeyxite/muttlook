@@ -186,9 +186,10 @@ def format_outlook_reply(message, htmltoinsert):
 
     # Extract header information
     headers = message.headers
+    date_str = message.date.strftime("%d %B %Y %H:%M:%S") if message.date else headers.get("Date", "")
     outlook_header = format_outlook_header(
         headers.get("From", ""),
-        message.date.strftime("%d %B %Y %H:%M:%S"),
+        date_str,
         headers.get("To"),
         headers.get("CC"),
         headers.get("Subject", ""),

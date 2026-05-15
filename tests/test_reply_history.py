@@ -236,3 +236,101 @@ def test_plain_text_parent_via_draft_pipeline():
     assert "plain text email from Gmail" in result
     # Should have proper HTML structure
     assert "<body>" in result.lower() or "<body" in result.lower()
+
+
+def test_apple_mail_html_joins_thread():
+    """Apple Mail HTML with xmlns and body style attribute."""
+    import mailparser
+    from muttlook import format_outlook_reply
+
+    raw = (
+        "From: sender@icloud.com\n"
+        "To: r@example.com\n"
+        "Subject: Apple Mail\n"
+        "Date: Thu, 1 May 2026 10:00:00 +0200\n"
+        "Content-Type: multipart/alternative; boundary=\"apple\"\n"
+        "MIME-Version: 1.0\n"
+        "\n"
+        "--apple\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "\n"
+        "Hello from Apple Mail\n"
+        "--apple\n"
+        "Content-Type: text/html; charset=utf-8\n"
+        "\n"
+        '<html xmlns="http://www.w3.org/1999/xhtml"><head></head>'
+        '<body style="word-wrap: break-word;"><div>Hello from Apple Mail</div></body></html>\n'
+        "--apple--\n"
+    )
+    msg = mailparser.parse_from_string(raw)
+    result = format_outlook_reply(msg, "<p>Reply</p>")
+    assert "Reply" in result
+    assert "Apple Mail" in result
+
+
+def test_html_fragment_no_body_tag():
+    """Newsletter-style HTML with only <p> tags, no <body> wrapper."""
+    import mailparser
+    from muttlook import format_outlook_reply
+
+    raw = (
+        "From: news@example.com\n"
+        "To: r@example.com\n"
+        "Subject: Newsletter\n"
+        "Date: Thu, 1 May 2026 10:00:00 +0200\n"
+        "Content-Type: multipart/alternative; boundary=\"nl\"\n"
+        "MIME-Version: 1.0\n"
+        "\n"
+        "--nl\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "\n"
+        "Newsletter content\n"
+        "--nl\n"
+        "Content-Type: text/html; charset=utf-8\n"
+        "\n"
+        '<p style="margin:0">Newsletter content</p><p>Click <a href="#">here</a></p>\n'
+        "--nl--\n"
+    )
+    msg = mailparser.parse_from_string(raw)
+    result = format_outlook_reply(msg, "<p>Reply</p>")
+    assert "Reply" in result
+    assert "Newsletter content" in result
+    assert "<body" in result.lower()
+
+
+def test_empty_body_parent():
+    """Parent email with empty body."""
+    import mailparser
+    from muttlook import format_outlook_reply
+
+    raw = (
+        "From: sender@example.com\n"
+        "To: r@example.com\n"
+        "Subject: Empty\n"
+        "Date: Thu, 1 May 2026 10:00:00 +0200\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "\n"
+    )
+    msg = mailparser.parse_from_string(raw)
+    result = format_outlook_reply(msg, "<p>Reply</p>")
+    assert "Reply" in result
+    assert "<body" in result.lower()
+
+
+def test_date_none_parent():
+    """Parent email with unparseable/missing Date header."""
+    import mailparser
+    from muttlook import format_outlook_reply
+
+    raw = (
+        "From: sender@example.com\n"
+        "To: r@example.com\n"
+        "Subject: No date\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "\n"
+        "Body without date header\n"
+    )
+    msg = mailparser.parse_from_string(raw)
+    result = format_outlook_reply(msg, "<p>Reply</p>")
+    assert "Reply" in result
+    assert "Body without date" in result
