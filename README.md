@@ -133,6 +133,26 @@ Term
 :   Definition
 ```
 
+### 6. Neovim Telescope live search ([nvim-mail](https://github.com/monkeyxite/nvim-mail))
+
+Search, preview, reply, and triage mail directly from Neovim via telescope:
+
+```lua
+-- <leader>sm opens live notmuch search (via nm-livesearch)
+require('telescope').load_extension('nvim_mail')
+```
+
+| Key | Action | Muttlook role |
+|-----|--------|---------------|
+| `Ctrl+d/u` | Scroll preview | `--action tui` renders preview |
+| `Ctrl+o` | View in browser | `--action view` (CID images resolved) |
+| `Ctrl+r` | Reply in nvim buffer | Marker added for `--action draft` on send |
+| `Ctrl+l` | Full styled preview split | `nm-html-extract` → `--action tui` |
+| `Ctrl+t` | GTD tag | — |
+| `Enter` | Open in neomutt | — |
+
+Preview uses `nm-html-extract` → `muttlook --action tui` for styled rendering. Reply creates a draft with muttlook marker — on send (`,m`), `--action draft` joins the thread with full HTML history.
+
 ## TUI Rendering Pipeline
 
 ```
