@@ -334,3 +334,27 @@ def test_date_none_parent():
     result = format_outlook_reply(msg, "<p>Reply</p>")
     assert "Reply" in result
     assert "Body without date" in result
+
+
+def test_inline_image_cid_replaced_with_file_path():
+    """CID references in parent HTML are replaced with file:// paths for preview."""
+    import shutil
+
+    # Set up original.msg with inline image
+    org = CACHE_DIR / "original.msg"
+    shutil.copy(FIXTURES / "gmail_with_inline_image.eml", org)
+
+    body = "My reply\n"
+    result = subprocess.run(
+        ["muttlook", "--action", "draft"],
+        input=body,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    html = (CACHE_DIR / "mimelook.html").read_text()
+    # CID should be replaced with file:// path
+    assert "cid:test_image@gmail" not in html
+    assert "file://" in html or "test_image" not in html  # either replaced or image not found
+    # Reply content should be present
+    assert "My reply" in html

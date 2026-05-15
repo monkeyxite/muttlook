@@ -383,6 +383,10 @@ def plain2fancy(msg):
             # Export inline attachments
             TEMP_DIR.mkdir(exist_ok=True)
             attachments = export_inline_attachments(message, str(TEMP_DIR))
+
+            # Replace CID references with file paths for preview
+            for cid, fpath in attachments:
+                madness = madness.replace(f'cid:{cid}', f'file://{fpath}')
         except (RuntimeError, Exception) as e:
             logging.warning(f"Could not fetch reply-to message: {e}, falling back to new message mode")
             reply_to_id = None

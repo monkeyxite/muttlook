@@ -1,0 +1,33 @@
+From: sender@gmail.com
+To: recipient@example.com
+Subject: Email with inline image
+Date: Thu, 1 May 2026 10:00:00 +0200
+Message-ID: <inline-img-test@gmail.com>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="related_boundary"
+
+--related_boundary
+Content-Type: multipart/alternative; boundary="alt_boundary"
+
+--alt_boundary
+Content-Type: text/plain; charset="UTF-8"
+
+Check this image:
+[image: test.png]
+
+Best,
+Sender
+--alt_boundary
+Content-Type: text/html; charset="UTF-8"
+
+<div dir="auto">Check this image:<br><img src="cid:test_image@gmail" alt="test.png"><br><br>Best,<br>Sender</div>
+--alt_boundary--
+
+--related_boundary
+Content-Type: image/png; name="test.png"
+Content-Disposition: inline; filename="test.png"
+Content-Transfer-Encoding: base64
+Content-ID: <test_image@gmail>
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAA1JREFUCFtjYPjPAAAAAQEAAAUAGNhNAAAAAElFTkSuQmCC
+--related_boundary--
