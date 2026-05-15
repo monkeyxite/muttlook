@@ -278,8 +278,26 @@ def main():
     except Exception as e:
         print(f"Warning: Could not save original message: {e}", file=sys.stderr)
 
+    # Extract In-Reply-To/References from headers to embed as hidden marker
+    in_reply_to = ""
+    references = ""
+    for line in mail_lines:
+        if line.strip() == "":
+            break  # end of headers
+        if line.startswith("In-Reply-To:"):
+            in_reply_to = line.split(":", 1)[1].strip()
+        elif line.startswith("References:"):
+            references = line.split(":", 1)[1].strip()
+
     # Trim and write back
     purged_lines = trim_mail(mail_lines)
+
+    # Append hidden marker with reply metadata (survives pipe, not rendered)
+    if in_reply_to:
+        purged_lines.append("\n")
+        purged_lines.append(f"[//]: # (muttlook-reply-to:{in_reply_to})\n")
+        if references:
+            purged_lines.append(f"[//]: # (muttlook-references:{references})\n")
 
     try:
         with open(mail_file, "w", encoding="utf-8") as f:

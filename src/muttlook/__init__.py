@@ -259,6 +259,25 @@ def plain2fancy(msg):
     for f in TEMP_DIR.glob("*.jpg"):
         f.unlink(missing_ok=True)
 
+    # Extract hidden reply metadata markers (embedded by mutt-trim)
+    marker_reply_to = None
+    marker_references = None
+    marker_re = re.compile(r'^\[//\]: # \(muttlook-(reply-to|references):(.+)\)$')
+    clean_lines = []
+    for line in msg.split("\n"):
+        m = marker_re.match(line)
+        if m:
+            if m.group(1) == "reply-to":
+                marker_reply_to = m.group(2).strip().strip("<>")
+            else:
+                marker_references = m.group(2).strip()
+        else:
+            clean_lines.append(line)
+    # Remove trailing blank lines left by marker stripping
+    while clean_lines and clean_lines[-1].strip() == "":
+        clean_lines.pop()
+    msg = "\n".join(clean_lines)
+
     # Skip EmailReplyParser for new messages (no quoted lines) — it strips indentation
     has_quotes = any(line.startswith(">") for line in msg.split("\n"))
     if has_quotes:
@@ -323,13 +342,35 @@ def plain2fancy(msg):
         else ""
     )
 
-    # Get original message - check if file exists
-    if not CONFIG["original_msg"].exists():
-        logging.error(f"Original message file not found: {CONFIG['original_msg']}")
-        logging.info("Available files in temp dir:")
-        for f in TEMP_DIR.glob("*"):
-            logging.info(f"  {f}")
-        # Create a simple HTML message without reply context
+    # Resolve reply-to message ID:
+    # 1. Prefer embedded marker (survives pipe, immune to original.msg races)
+    # 2. Fall back to original.msg headers
+    reply_to_id = marker_reply_to
+    if not reply_to_id and CONFIG["original_msg"].exists():
+        org_reply_msg = mailparser.parse_from_file(CONFIG["original_msg"])
+        if "In-Reply-To" in org_reply_msg.headers:
+            reply_to_id = org_reply_msg.headers["In-Reply-To"].strip("<>")
+        elif "References" in org_reply_msg.headers:
+            refs = org_reply_msg.headers["References"].strip().split()
+            if refs:
+                reply_to_id = refs[-1].strip("<>")
+
+    logging.info(f"reply_to_id={reply_to_id} (from_marker={marker_reply_to is not None})")
+
+    if reply_to_id:
+        try:
+            message = message_from_msgid(reply_to_id)
+            madness = format_outlook_reply(message, text2html)
+
+            # Export inline attachments
+            TEMP_DIR.mkdir(exist_ok=True)
+            attachments = export_inline_attachments(message, str(TEMP_DIR))
+        except (RuntimeError, Exception) as e:
+            logging.warning(f"Could not fetch reply-to message: {e}, falling back to new message mode")
+            reply_to_id = None
+
+    if not reply_to_id:
+        # New message - use pandoc template
         try:
             result = subprocess.run(
                 [
@@ -350,56 +391,8 @@ def plain2fancy(msg):
             madness = result.stdout
         except subprocess.CalledProcessError as e:
             logging.error(f"Error generating HTML: {e}")
-            madness = f"<html><body>{text2html}</body></html>"
+            madness = ""
         attachments = []
-    else:
-        org_reply_msg = mailparser.parse_from_file(CONFIG["original_msg"])
-
-        # Find reply-to message ID: In-Reply-To first, then last References entry
-        reply_to_id = None
-        if "In-Reply-To" in org_reply_msg.headers:
-            reply_to_id = org_reply_msg.headers["In-Reply-To"].strip("<>")
-        elif "References" in org_reply_msg.headers:
-            refs = org_reply_msg.headers["References"].strip().split()
-            if refs:
-                reply_to_id = refs[-1].strip("<>")
-
-        if reply_to_id:
-            try:
-                message = message_from_msgid(reply_to_id)
-                madness = format_outlook_reply(message, text2html)
-
-                # Export inline attachments
-                TEMP_DIR.mkdir(exist_ok=True)
-                attachments = export_inline_attachments(message, str(TEMP_DIR))
-            except (RuntimeError, Exception) as e:
-                logging.warning(f"Could not fetch reply-to message: {e}, falling back to new message mode")
-                reply_to_id = None
-
-        if not reply_to_id:
-            # New message - use pandoc template
-            try:
-                result = subprocess.run(
-                    [
-                        "pandoc",
-                        "-f",
-                        "markdown+lists_without_preceding_blankline+hard_line_breaks",
-                        "-t",
-                        "html5",
-                        "--standalone",
-                        "--template",
-                        CONFIG["template"],
-                    ],
-                    input=latest_reply,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                madness = result.stdout
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Error generating HTML: {e}")
-                madness = ""
-            attachments = []
 
     # Handle inline images in reply
     image_links = re.findall(r"!\[.*?\]\(([^)]+)\)", latest_reply)
