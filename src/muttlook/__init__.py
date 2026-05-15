@@ -110,6 +110,21 @@ def export_inline_attachments(message, dstdir):
     return ret
 
 
+def _format_addr_list(addrs):
+    """Format mailparser address list [(name, email), ...] to readable string."""
+    if not addrs:
+        return ""
+    if isinstance(addrs, str):
+        return addrs
+    parts = []
+    for name, email in addrs:
+        if name:
+            parts.append(f"{name} &lt;{email}&gt;")
+        else:
+            parts.append(email)
+    return "; ".join(parts)
+
+
 def format_outlook_header(fromaddr, sent, to, cc, subject):
     """Format outlook-style header."""
     header_parts = [f"<b>From:</b> {fromaddr}<br>", f"<b>Sent:</b> {sent}<br>"]
@@ -188,11 +203,11 @@ def format_outlook_reply(message, htmltoinsert):
     headers = message.headers
     date_str = message.date.strftime("%d %B %Y %H:%M:%S") if message.date else headers.get("Date", "")
     outlook_header = format_outlook_header(
-        headers.get("From", ""),
+        _format_addr_list(headers.get("From", "")),
         date_str,
-        headers.get("To"),
-        headers.get("CC"),
-        headers.get("Subject", ""),
+        _format_addr_list(headers.get("To")),
+        _format_addr_list(headers.get("CC")),
+        headers.get("Subject", "") if isinstance(headers.get("Subject"), str) else str(headers.get("Subject", "")),
     )
 
     # Find body tag and insert reply
