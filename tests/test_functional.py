@@ -217,10 +217,13 @@ def test_table_in_obsidian():
 # --- TUI rendering (render_html_to_ansi) tests ---
 
 
+import sys
+
+
 def _render_tui(html):
     """Helper: call render_html_to_ansi via subprocess to use installed muttlook."""
     result = subprocess.run(
-        ["python3", "-c",
+        [sys.executable, "-c",
          "import sys; sys.path.insert(0,'.'); from muttlook import render_html_to_ansi; print(render_html_to_ansi(sys.stdin.read()))"],
         input=html,
         capture_output=True,
@@ -666,3 +669,37 @@ def test_inline_image_same_path_as_tempdir():
         assert "edit-content-id" in cmd, "mutt_cmd missing content-id setup"
     finally:
         img_path.unlink(missing_ok=True)
+
+
+def test_outlook_reply_cid_images_preserved_in_outgoing():
+    """CID refs in quoted Outlook HTML must survive into outgoing draft HTML.
+
+    Regression: previously cid: refs were replaced with file:// for preview,
+    breaking inline images for Outlook recipients.
+    """
+    import mailparser
+    from unittest.mock import patch
+    from muttlook import plain2fancy, CONFIG
+
+    fixture = FIXTURES / "outlook_reply_with_cid_images.eml"
+    # Parse the fixture as the "reply-to" message (the Outlook mail with CID images)
+    reply_message = mailparser.parse_from_file(str(fixture))
+
+    # The draft input: user's new text + marker pointing to the fixture message
+    draft_input = "Thanks, looks good!\n\nBR//Jonny\n\n[//]: # (muttlook-reply-to:test-cid-reply@example.com)"
+
+    with patch("muttlook.message_from_msgid", return_value=reply_message):
+        plain2fancy(draft_input)
+
+    html = CONFIG["html_file"].read_text()
+    cmd = CONFIG["commands_file"].read_text()
+
+    # CID refs must be intact in outgoing HTML — NOT replaced with file://
+    assert "cid:image001.png@01DCF1B8.A28146D0" in html, \
+        "CID ref was replaced (file:// substitution broke outgoing images)"
+    assert "file://" not in html, \
+        "file:// path found in outgoing HTML — breaks Outlook recipients"
+
+    # mutt_cmd must attach the image and set its Content-ID
+    assert "edit-content-id" in cmd, "Image CID not set in mutt_cmd"
+    assert "group-related" in cmd, "multipart/related not built in mutt_cmd"

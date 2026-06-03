@@ -348,7 +348,6 @@ def plain2fancy(msg):
             extensions=[
                 "tables",
                 "fenced_code",
-                "nl2br",
                 "toc",
                 "def_list",
                 "sane_lists",
@@ -380,13 +379,15 @@ def plain2fancy(msg):
             message = message_from_msgid(reply_to_id)
             madness = format_outlook_reply(message, text2html)
 
-            # Export inline attachments
+            # Export inline attachments from quoted reply — keep CIDs in HTML for outgoing mail
             TEMP_DIR.mkdir(exist_ok=True)
             attachments = export_inline_attachments(message, str(TEMP_DIR))
 
-            # Replace CID references with file paths for preview
+            # Replace CID references with file paths for preview only (separate copy)
+            preview_html = madness
             for cid, fpath in attachments:
-                madness = madness.replace(f'cid:{cid}', f'file://{fpath}')
+                preview_html = preview_html.replace(f'cid:{cid}', f'file://{fpath}')
+            # madness keeps CID refs intact for outgoing MIME structure
         except (RuntimeError, Exception) as e:
             logging.warning(f"Could not fetch reply-to message: {e}, falling back to new message mode")
             reply_to_id = None
@@ -506,11 +507,15 @@ def view_html(pipe):
         fname = cid.split("@")[0] if "@" in cid else cid
         fpath = viewdir / fname
         try:
-            content = base64.decodebytes(att["payload"].encode("ascii"))
+            payload = att["payload"]
+            if isinstance(payload, bytes):
+                content = payload
+            else:
+                content = base64.decodebytes(payload.encode("ascii"))
             fpath.write_bytes(content)
             body_html = body_html.replace(f"cid:{cid}", str(fpath))
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Failed to export inline image {cid}: {e}")
 
     outfile = viewdir / "message.html"
     # Force UTF-8 charset — mailparser decodes to Python str (UTF-8),
@@ -823,9 +828,9 @@ def main(action, width, file):
     if action == "clean":
         send_hook_cleaner(str(TEMP_DIR))
     elif action == "draft":
-        plain2fancy(sys.stdin.read())
+        plain2fancy(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
     elif action == "view":
-        view_html(sys.stdin.read())
+        view_html(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
     elif action in ("tui", "tui-rich"):
         renderer = render_html_rich if action == "tui-rich" else render_html_to_ansi
         if file:
@@ -839,7 +844,7 @@ def main(action, width, file):
                 html_text = raw.decode("utf-8", errors="replace")
             print(renderer(html_text, width=width))
         else:
-            view_tui(sys.stdin.read(), renderer=renderer, width=width)
+            view_tui(sys.stdin.buffer.read().decode("utf-8", errors="replace"), renderer=renderer, width=width)
 
 
 if __name__ == "__main__":

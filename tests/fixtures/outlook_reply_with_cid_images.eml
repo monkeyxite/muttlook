@@ -1,0 +1,34 @@
+From: Ted Persson <ted.persson@ericsson.com>
+To: Jonny Hou <jonny.hou@ericsson.com>
+Subject: Windload curves
+Message-ID: <test-cid-reply@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="test_related_boundary"
+
+--test_related_boundary
+Content-Type: multipart/alternative; boundary="test_alt_boundary"
+
+--test_alt_boundary
+Content-Type: text/plain; charset="utf-8"
+
+Please review the windload curves.
+
+--test_alt_boundary
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<p>Please review the windload curves.</p>
+<img src="cid:image001.png@01DCF1B8.A28146D0">
+</body></html>
+
+--test_alt_boundary--
+
+--test_related_boundary
+Content-Type: image/png
+Content-ID: <image001.png@01DCF1B8.A28146D0>
+Content-Disposition: inline
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+
+--test_related_boundary--
